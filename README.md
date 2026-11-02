@@ -2,7 +2,7 @@
 
 3D Slicer extension for [VE-SCAN](https://github.com/edoardoedr/VESCAN_develop): centerline trees of the pulmonary arteries, veins and airways, anatomical branch labels, crossing vessels and tree cutting.
 
-Status: mockup. The module `VEScan` is the Extension Wizard template (Slicer `main`); the UI and the stub functions are being built from [docs/ui_layout.md](docs/ui_layout.md), and the VE-SCAN core will be connected afterwards.
+Status: UI mockup. The module `VEScan` shows the full UI from [docs/ui_layout.md](docs/ui_layout.md); the logic functions are stubs that only log. Next steps in [NEXT.md](NEXT.md).
 
 ## Develop
 

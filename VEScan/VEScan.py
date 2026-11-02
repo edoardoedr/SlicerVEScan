@@ -1,20 +1,28 @@
 import logging
-import os
+import pathlib
+import time
 from typing import Annotated
 
+import qt
 import vtk
 
 import slicer
 from slicer.i18n import tr as _
-from slicer.i18n import translate
 from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
 from slicer.parameterNodeWrapper import (
     parameterNodeWrapper,
-    WithinRange,
+    Choice,
 )
 
-from slicer import vtkMRMLScalarVolumeNode
+from slicer import vtkMRMLScalarVolumeNode, vtkMRMLSegmentationNode
+
+
+STRUCTURES = ["artery", "veins", "airways"]
+INPUTS = ["ct", "artery", "veins", "airways", "airwayWall", "lobes"]
+LOBES = ["RUL", "RML", "RLL", "LUL", "LLL"]
+COLOR_BY_ARRAYS = ["AnatomicalSegment", "LobeLabel", "CrossingType", "Generation"]
+CROSSING_COLUMNS = ["ID", "structure", "type", "lobes", "length mm", "angle deg"]
 
 
 #
@@ -23,83 +31,19 @@ from slicer import vtkMRMLScalarVolumeNode
 
 
 class VEScan(ScriptedLoadableModule):
-    """Uses ScriptedLoadableModule base class, available at:
-    https://github.com/Slicer/Slicer/blob/main/Base/Python/slicer/ScriptedLoadableModule.py
-    """
-
     def __init__(self, parent):
         ScriptedLoadableModule.__init__(self, parent)
-        self.parent.title = _("VE-SCAN")  # TODO: make this more human readable by adding spaces
-        # TODO: set categories (folders where the module shows up in the module selector)
-        self.parent.categories = [translate("qSlicerAbstractCoreModule", "Examples")]
-        self.parent.dependencies = []  # TODO: add here list of module names that this module requires
-        self.parent.contributors = ["Edoardo De Rose (KIT, IBT)"]  # TODO: replace with "Firstname Lastname (Organization)"
-        # TODO: update with short description of the module and a link to online module documentation
-        # _() function marks text as translatable to other languages
+        self.parent.title = _("VE-SCAN")
+        self.parent.categories = [_("Chest Imaging")]
+        self.parent.dependencies = []
+        self.parent.contributors = ["Edoardo De Rose (KIT, IBT)"]
         self.parent.helpText = _("""
-This is an example of scripted loadable module bundled in an extension.
-See more information in <a href="https://github.com/organization/projectname#VEScan">module documentation</a>.
+Centerline trees of the pulmonary arteries, veins and airways, anatomical branch labels,
+crossing vessels and tree cutting. See <a href="https://github.com/edoardoedr/VESCAN_develop">VE-SCAN</a>.
 """)
-        # TODO: replace with organization, grant and thanks
         self.parent.acknowledgementText = _("""
-This file was originally developed by Jean-Christophe Fillion-Robin, Kitware Inc., Andras Lasso, PerkLab,
-and Steve Pieper, Isomics, Inc. and was partially funded by NIH grant 3P41RR013218-12S1.
+Developed at the Institute of Biomedical Engineering (IBT), Karlsruhe Institute of Technology (KIT).
 """)
-
-        # Additional initialization step after application startup is complete
-        slicer.app.connect("startupCompleted()", registerSampleData)
-
-
-#
-# Register sample data sets in Sample Data module
-#
-
-
-def registerSampleData():
-    """Add data sets to Sample Data module."""
-    # It is always recommended to provide sample data for users to make it easy to try the module,
-    # but if no sample data is available then this method (and associated startupCompeted signal connection) can be removed.
-
-    import SampleData
-
-    iconsPath = os.path.join(os.path.dirname(__file__), "Resources/Icons")
-
-    # To ensure that the source code repository remains small (can be downloaded and installed quickly)
-    # it is recommended to store data sets that are larger than a few MB in a Github release.
-
-    SampleData.SampleDataLogic.registerCustomSampleDataCategory("VEScan", title=_("VEScan"))
-
-    # VEScan1
-    SampleData.SampleDataLogic.registerCustomSampleDataSource(
-        # Category and sample name displayed in Sample Data module
-        category="VEScan",
-        sampleName="VEScan1",
-        # Thumbnail should have size of approximately 260x280 pixels and stored in Resources/Icons folder.
-        # It can be created by Screen Capture module, "Capture all views" option enabled, "Number of images" set to "Single".
-        thumbnailFileName=os.path.join(iconsPath, "VEScan1.png"),
-        # Download URL and target file name
-        uris="https://github.com/Slicer/SlicerTestingData/releases/download/SHA256/998cb522173839c78657f4bc0ea907cea09fd04e44601f17c82ea27927937b95",
-        fileNames="VEScan1.nrrd",
-        # Checksum to ensure file integrity. Can be computed by this command:
-        #  import hashlib; print(hashlib.sha256(open(filename, "rb").read()).hexdigest())
-        checksums="SHA256:998cb522173839c78657f4bc0ea907cea09fd04e44601f17c82ea27927937b95",
-        # This node name will be used when the data set is loaded
-        nodeNames="VEScan1",
-    )
-
-    # VEScan2
-    SampleData.SampleDataLogic.registerCustomSampleDataSource(
-        # Category and sample name displayed in Sample Data module
-        category="VEScan",
-        sampleName="VEScan2",
-        thumbnailFileName=os.path.join(iconsPath, "VEScan2.png"),
-        # Download URL and target file name
-        uris="https://github.com/Slicer/SlicerTestingData/releases/download/SHA256/1a64f3f422eb3d1c9b093d1a18da354b13bcf307907c66317e2463ee530b7a97",
-        fileNames="VEScan2.nrrd",
-        checksums="SHA256:1a64f3f422eb3d1c9b093d1a18da354b13bcf307907c66317e2463ee530b7a97",
-        # This node name will be used when the data set is loaded
-        nodeNames="VEScan2",
-    )
 
 
 #
@@ -109,21 +53,42 @@ def registerSampleData():
 
 @parameterNodeWrapper
 class VEScanParameterNode:
-    """
-    The parameters needed by module.
+    # Inputs: source ("scene" | "file") + node + path, per input
+    ctSource: Annotated[str, Choice(["scene", "file"])] = "scene"
+    ctVolume: vtkMRMLScalarVolumeNode
+    ctPath: pathlib.Path
+    arterySource: Annotated[str, Choice(["scene", "file"])] = "scene"
+    veinsSource: Annotated[str, Choice(["scene", "file"])] = "scene"
+    airwaysSource: Annotated[str, Choice(["scene", "file"])] = "scene"
+    airwayWallSource: Annotated[str, Choice(["scene", "file"])] = "scene"
+    lobesSource: Annotated[str, Choice(["scene", "file"])] = "scene"
+    arteryPath: pathlib.Path
+    veinsPath: pathlib.Path
+    airwaysPath: pathlib.Path
+    airwayWallPath: pathlib.Path
+    lobesPath: pathlib.Path
+    lobesSegmentation: vtkMRMLSegmentationNode
+    storePath: pathlib.Path
+    # Method
+    method: Annotated[str, Choice(["field", "vmtk"])] = "field"
+    runArtery: bool = True
+    runVeins: bool = True
+    runAirways: bool = True
+    stagePreprocess: bool = True
+    stageCenterlines: bool = True
+    stageAnatomy: bool = True
+    # Output
+    outputDir: pathlib.Path
+    # Cut tree
+    arteryGenerations: int = 6
+    veinsGenerations: int = 6
+    airwaysGenerations: int = 6
+    capSurface: bool = True
 
-    inputVolume - The volume to threshold.
-    imageThreshold - The value at which to threshold the input volume.
-    invertThreshold - If true, will invert the threshold.
-    thresholdedVolume - The output volume that will contain the thresholded volume.
-    invertedVolume - The output volume that will contain the inverted thresholded volume.
-    """
 
-    inputVolume: vtkMRMLScalarVolumeNode
-    imageThreshold: Annotated[float, WithinRange(-100, 500)] = 100
-    invertThreshold: bool = False
-    thresholdedVolume: vtkMRMLScalarVolumeNode
-    invertedVolume: vtkMRMLScalarVolumeNode
+def isPathSet(path) -> bool:
+    # An empty pathlib.Path is "."
+    return str(path) not in ("", ".")
 
 
 #
@@ -132,136 +97,261 @@ class VEScanParameterNode:
 
 
 class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
-    """Uses ScriptedLoadableModuleWidget base class, available at:
-    https://github.com/Slicer/Slicer/blob/main/Base/Python/slicer/ScriptedLoadableModule.py
-    """
-
     def __init__(self, parent=None) -> None:
-        """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.__init__(self, parent)
-        VTKObservationMixin.__init__(self)  # needed for parameter node observation
+        VTKObservationMixin.__init__(self)
         self.logic = None
         self._parameterNode = None
         self._parameterNodeGuiTag = None
 
     def setup(self) -> None:
-        """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.setup(self)
 
-        # Load widget from .ui file (created by Qt Designer).
-        # Additional widgets can be instantiated manually and added to self.layout.
         uiWidget = slicer.util.loadUI(self.resourcePath("UI/VEScan.ui"))
         self.layout.addWidget(uiWidget)
         self.ui = slicer.util.childWidgetVariables(uiWidget)
-
-        # Set scene in MRML widgets. Make sure that in Qt designer the top-level qMRMLWidget's
-        # "mrmlSceneChanged(vtkMRMLScene*)" signal in is connected to each MRML widget's.
-        # "setMRMLScene(vtkMRMLScene*)" slot.
         uiWidget.setMRMLScene(slicer.mrmlScene)
 
-        # Create logic class. Logic implements all computations that should be possible to run
-        # in batch mode, without a graphical user interface.
         self.logic = VEScanLogic()
 
-        # Connections
-
-        # These connections ensure that we update parameter node when scene is closed
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose)
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
 
-        # Buttons
-        self.ui.applyButton.connect("clicked(bool)", self.onApplyButton)
+        # Path edits and generation sliders are synced by hand: the automatic binding shows an
+        # empty path as "." and forces a fixed slider range. Paths use the edit text because
+        # currentPathChanged is not emitted for double extensions like "*.nii.gz".
+        self._pathEdits = {f"{name}Path": getattr(self.ui, f"{name}PathEdit") for name in INPUTS}
+        self._pathEdits["storePath"] = self.ui.storePathEdit
+        self._pathEdits["outputDir"] = self.ui.outputPathEdit
+        for paramName, pathEdit in self._pathEdits.items():
+            pathEdit.comboBox().editTextChanged.connect(
+                lambda path, n=paramName: self._setParameter(n, pathlib.Path(path)))
 
-        # Make sure parameter node is initialized (needed for module reload)
+        # Inputs
+        for name in INPUTS:
+            self._connectSourceSwitch(name)
+        for name in STRUCTURES + ["airwayWall"]:
+            getattr(self.ui, f"{name}SegmentSelector").connect(
+                "currentNodeChanged(vtkMRMLNode*)", self._updateRunButtonState)
+        self.ui.lobesTable.setRowCount(len(LOBES))
+        for row, lobe in enumerate(LOBES):
+            item = qt.QTableWidgetItem(lobe)
+            item.setFlags(qt.Qt.ItemIsEnabled)
+            self.ui.lobesTable.setItem(row, 0, item)
+        self.ui.lobesTable.hide()
+        self.ui.loadLobesButton.clicked.connect(self.onLoadLobes)
+
+        # Method
+        self.ui.fieldRadio.toggled.connect(self.onMethodChanged)
+
+        # Output
+        self.ui.runButton.clicked.connect(self.onRun)
+        self.ui.cancelButton.clicked.connect(self.onCancel)
+
+        # Cut tree
+        self.ui.clipCollapsibleButton.hide()
+        for name in STRUCTURES:
+            getattr(self.ui, f"{name}GenerationsSlider").valueChanged.connect(
+                lambda value, n=name: self.onGenerationsChanged(n, value))
+        self.ui.applyCutButton.clicked.connect(self.onApplyCut)
+
+        # Results
+        for kind, check in [("surfaces", self.ui.showSurfacesCheck), ("centerlines", self.ui.showCenterlinesCheck),
+                            ("lobes", self.ui.showLobesCheck), ("cutPoints", self.ui.showCutPointsCheck)]:
+            check.toggled.connect(lambda visible, k=kind: self.onDisplayChanged(k, visible))
+        self.ui.colorByCombo.currentIndexChanged.connect(self.onColorByChanged)
+        self.ui.crossingsTableView.clicked.connect(lambda index: self.onCrossingSelected(index.row()))
+        self.ui.exportStatsButton.clicked.connect(self.onExportStatistics)
+
         self.initializeParameterNode()
 
     def cleanup(self) -> None:
-        """Called when the application closes and the module widget is destroyed."""
         self.removeObservers()
 
     def enter(self) -> None:
-        """Called each time the user opens this module."""
-        # Make sure parameter node exists and observed
         self.initializeParameterNode()
 
     def exit(self) -> None:
-        """Called each time the user opens a different module."""
-        # Do not react to parameter node changes (GUI will be updated when the user enters into the module)
         if self._parameterNode:
             self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
             self._parameterNodeGuiTag = None
-            self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
+            self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._updateRunButtonState)
 
     def onSceneStartClose(self, caller, event) -> None:
-        """Called just before the scene is closed."""
-        # Parameter node will be reset, do not use it anymore
         self.setParameterNode(None)
 
     def onSceneEndClose(self, caller, event) -> None:
-        """Called just after the scene is closed."""
-        # If this module is shown while the scene is closed then recreate a new parameter node immediately
         if self.parent.isEntered:
             self.initializeParameterNode()
 
     def initializeParameterNode(self) -> None:
-        """Ensure parameter node exists and observed."""
-        # Parameter node stores all user choices in parameter values, node selections, etc.
-        # so that when the scene is saved and reloaded, these settings are restored.
-
         self.setParameterNode(self.logic.getParameterNode())
 
-        # Select default input nodes if nothing is selected yet to save a few clicks for the user
-        if not self._parameterNode.inputVolume:
-            firstVolumeNode = slicer.mrmlScene.GetFirstNodeByClass("vtkMRMLScalarVolumeNode")
-            if firstVolumeNode:
-                self._parameterNode.inputVolume = firstVolumeNode
-
     def setParameterNode(self, inputParameterNode: VEScanParameterNode | None) -> None:
-        """
-        Set and observe parameter node.
-        Observation is needed because when the parameter node is changed then the GUI must be updated immediately.
-        """
-
         if self._parameterNode:
             self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
-            self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
+            self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._updateRunButtonState)
         self._parameterNode = inputParameterNode
         if self._parameterNode:
-            # Note: in the .ui file, a Qt dynamic property called "SlicerParameterName" is set on each
-            # ui element that needs connection.
             self._parameterNodeGuiTag = self._parameterNode.connectGui(self.ui)
-            self.addObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._checkCanApply)
-            self._checkCanApply()
+            self.addObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._updateRunButtonState)
+            # Restore what is not bound automatically
+            for paramName, pathEdit in self._pathEdits.items():
+                path = getattr(self._parameterNode, paramName)
+                pathEdit.currentPath = str(path) if isPathSet(path) else ""
+            for name in INPUTS:
+                isFile = getattr(self._parameterNode, f"{name}Source") == "file"
+                getattr(self.ui, f"{name}FileRadio" if isFile else f"{name}SceneRadio").checked = True
+            self._updateRunButtonState()
 
-    def _checkCanApply(self, caller=None, event=None) -> None:
-        if self._parameterNode and self._parameterNode.inputVolume and self._parameterNode.thresholdedVolume:
-            self.ui.applyButton.toolTip = _("Compute output volume")
-            self.ui.applyButton.enabled = True
-        else:
-            self.ui.applyButton.toolTip = _("Select input and output volume nodes")
-            self.ui.applyButton.enabled = False
+    def _setParameter(self, name, value) -> None:
+        if self._parameterNode:
+            setattr(self._parameterNode, name, value)
 
-    def onApplyButton(self) -> None:
-        """Run processing when user clicks "Apply" button."""
-        # TODO: If your module requires additional Python packages, uncomment
-        # the following lines and add your dependencies to the
-        # Resources/requirements.txt file (one per line, e.g. "scikit-image>=0.20").
-        # import slicer.packaging
-        # slicer.packaging.pip_ensure(
-        #     slicer.packaging.load_requirements(self.resourcePath("requirements.txt")),
-        #     requester="VEScan",
-        # )
+    #
+    # Inputs
+    #
 
-        with slicer.util.tryWithErrorDisplay(_("Failed to compute results."), waitCursor=True):
-            # Compute output
-            self.logic.process(self.ui.inputSelector.currentNode(), self.ui.outputSelector.currentNode(),
-                               self.ui.imageThresholdSliderWidget.value, self.ui.invertOutputCheckBox.checked)
+    def _connectSourceSwitch(self, name) -> None:
+        stack = getattr(self.ui, f"{name}Stack")
+        getattr(self.ui, f"{name}FileRadio").toggled.connect(lambda isFile: self._onSourceToggled(name, stack, isFile))
+        self._onSourceToggled(name, stack, False)
 
-            # Compute inverted output (if needed)
-            if self.ui.invertedOutputSelector.currentNode():
-                # If additional output volume is selected then result with inverted threshold is written there
-                self.logic.process(self.ui.inputSelector.currentNode(), self.ui.invertedOutputSelector.currentNode(),
-                                   self.ui.imageThresholdSliderWidget.value, not self.ui.invertOutputCheckBox.checked, showResult=False)
+    def _onSourceToggled(self, name, stack, isFile) -> None:
+        stack.currentIndex = 1 if isFile else 0
+        # Size the stack to the visible page only
+        for i in range(stack.count):
+            policy = qt.QSizePolicy.Preferred if i == stack.currentIndex else qt.QSizePolicy.Ignored
+            stack.widget(i).setSizePolicy(qt.QSizePolicy.Preferred, policy)
+        self._setParameter(f"{name}Source", "file" if isFile else "scene")
+
+    def _isInputSet(self, name) -> bool:
+        p = self._parameterNode
+        if getattr(p, f"{name}Source") == "file":
+            return isPathSet(getattr(p, f"{name}Path"))
+        if name == "ct":
+            return p.ctVolume is not None
+        if name == "lobes":
+            return p.lobesSegmentation is not None
+        return getattr(self.ui, f"{name}SegmentSelector").currentNode() is not None
+
+    def onLoadLobes(self) -> None:
+        p = self._parameterNode
+        with slicer.util.tryWithErrorDisplay(_("Failed to load lobes."), waitCursor=True):
+            labels = self.logic.loadLobes(p.lobesSource, p.lobesSegmentation, p.lobesPath)
+            for row in range(len(LOBES)):
+                combo = qt.QComboBox()
+                combo.addItems([str(label) for label in labels])
+                combo.currentIndex = row
+                self.ui.lobesTable.setCellWidget(row, 1, combo)
+            self.ui.lobesTable.show()
+
+    #
+    # Method / Output
+    #
+
+    def onMethodChanged(self) -> None:
+        self._setParameter("method", "field" if self.ui.fieldRadio.checked else "vmtk")
+
+    def _updateRunButtonState(self, caller=None, event=None) -> None:
+        p = self._parameterNode
+        if not p:
+            return
+        structures = [s for s in STRUCTURES if getattr(p, f"run{s.capitalize()}")]
+        missing = []
+        if not structures:
+            missing.append(_("a structure"))
+        missing += [name for name in ["ct"] + structures if not self._isInputSet(name)]
+        if p.method == "field" and not isPathSet(p.storePath):
+            missing.append(_("field store"))
+        if p.stageAnatomy and not self._isInputSet("lobes"):
+            missing.append(_("lobes"))
+        if not isPathSet(p.outputDir):
+            missing.append(_("output folder"))
+        self.ui.runButton.enabled = not missing and not self.ui.cancelButton.enabled
+        self.ui.runButton.toolTip = _("Missing: ") + ", ".join(missing) if missing else _("Run VE-SCAN")
+
+    def onRun(self) -> None:
+        p = self._parameterNode
+        self.ui.logText.clear()
+        self.ui.cancelButton.enabled = True
+        self.ui.runButton.enabled = False
+        try:
+            with slicer.util.tryWithErrorDisplay(_("VE-SCAN failed."), waitCursor=True):
+                finished = self.logic.run(p, self._onProgress)
+                if finished and p.stageCenterlines:
+                    self._onCenterlinesDone()
+                if finished:
+                    self._onRunFinished()
+        finally:
+            self.ui.cancelButton.enabled = False
+            self._updateRunButtonState()
+
+    def onCancel(self) -> None:
+        self.logic.cancel()
+
+    def _onProgress(self, stage, structure, i, n, message) -> None:
+        self.ui.progressBar.maximum = n
+        self.ui.progressBar.value = i
+        self.ui.statusLabel.text = f"{stage}: {structure} {i}/{n}"
+        self.ui.logText.appendPlainText(message)
+
+    def _runStructures(self):
+        return [s for s in STRUCTURES if getattr(self._parameterNode, f"run{s.capitalize()}")]
+
+    #
+    # Cut tree
+    #
+
+    def _onCenterlinesDone(self) -> None:
+        runStructures = self._runStructures()
+        for name in STRUCTURES:
+            visible = name in runStructures
+            getattr(self.ui, f"{name}GenerationsLabel").visible = visible
+            slider = getattr(self.ui, f"{name}GenerationsSlider")
+            slider.visible = visible
+            if visible:
+                slider.minimum, slider.maximum = self.logic.getGenerationRange(name)
+                slider.value = slider.maximum
+        self.ui.clipCollapsibleButton.show()
+        self.ui.clipCollapsibleButton.collapsed = False
+
+    def onGenerationsChanged(self, structure, value) -> None:
+        self._setParameter(f"{structure}Generations", int(value))
+        if self.ui.previewCheck.checked:
+            self.logic.previewCut(structure, int(value))
+
+    def onApplyCut(self) -> None:
+        with slicer.util.tryWithErrorDisplay(_("Failed to cut the tree."), waitCursor=True):
+            for name in self._runStructures():
+                self.logic.applyCut(name, getattr(self._parameterNode, f"{name}Generations"),
+                                    self._parameterNode.capSurface)
+
+    #
+    # Results
+    #
+
+    def _onRunFinished(self) -> None:
+        tableNode = self.logic.loadResults(self._parameterNode.outputDir)
+        self.ui.crossingsTableView.setMRMLTableNode(tableNode)
+        self.ui.resultsCollapsibleButton.enabled = True
+        self.ui.resultsCollapsibleButton.collapsed = False
+
+    def onDisplayChanged(self, kind, visible) -> None:
+        self.logic.setVisibility(kind, visible)
+
+    def onColorByChanged(self, index) -> None:
+        self.logic.setColorBy(COLOR_BY_ARRAYS[index])
+
+    def onCrossingSelected(self, row) -> None:
+        tableNode = self.ui.crossingsTableView.mrmlTableNode()
+        if tableNode and row < tableNode.GetNumberOfRows():
+            self.logic.focusCrossing(tableNode.GetCellText(row, 0))
+
+    def onExportStatistics(self) -> None:
+        path = qt.QFileDialog.getSaveFileName(slicer.util.mainWindow(), _("Export statistics"), "", "CSV (*.csv)")
+        if path:
+            self.logic.exportStatistics(path)
 
 
 #
@@ -270,59 +360,92 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 
 class VEScanLogic(ScriptedLoadableModuleLogic):
-    """This class should implement all the actual
-    computation done by your module.  The interface
-    should be such that other python code can import
-    this class and make use of the functionality without
-    requiring an instance of the Widget.
-    Uses ScriptedLoadableModuleLogic base class, available at:
-    https://github.com/Slicer/Slicer/blob/main/Base/Python/slicer/ScriptedLoadableModule.py
-    """
+    """Stubs: they only log their arguments. Values marked "fake" let the UI move on."""
 
     def __init__(self) -> None:
-        """Called when the logic class is instantiated. Can be used for initializing member variables."""
         ScriptedLoadableModuleLogic.__init__(self)
+        self._cancelRequested = False
+        self.crossingsTableNode = None
 
     def getParameterNode(self):
         return VEScanParameterNode(super().getParameterNode())
 
-    def process(self,
-                inputVolume: vtkMRMLScalarVolumeNode,
-                outputVolume: vtkMRMLScalarVolumeNode,
-                imageThreshold: float,
-                invert: bool = False,
-                showResult: bool = True) -> None:
-        """
-        Run the processing algorithm.
-        Can be used without GUI widget.
-        :param inputVolume: volume to be thresholded
-        :param outputVolume: thresholding result
-        :param imageThreshold: values above/below this threshold will be set to 0
-        :param invert: if True then values above the threshold will be set to 0, otherwise values below are set to 0
-        :param showResult: show output volume in slice viewers
-        """
+    # Inputs
 
-        if not inputVolume or not outputVolume:
-            raise ValueError("Input or output volume is invalid")
+    def loadCT(self, source, node=None, path=None):
+        logging.info(f"loadCT({source}, {node}, {path})")
 
-        import time
+    def loadStructure(self, name, source, segmentation=None, segmentId=None, path=None):
+        logging.info(f"loadStructure({name}, {source}, {segmentation}, {segmentId}, {path})")
 
-        startTime = time.time()
-        logging.info("Processing started")
+    def loadStore(self, path):
+        logging.info(f"loadStore({path})")
 
-        # Compute the thresholded output volume using the "Threshold Scalar Volume" CLI module
-        cliParams = {
-            "InputVolume": inputVolume.GetID(),
-            "OutputVolume": outputVolume.GetID(),
-            "ThresholdValue": imageThreshold,
-            "ThresholdType": "Above" if invert else "Below",
-        }
-        cliNode = slicer.cli.run(slicer.modules.thresholdscalarvolume, None, cliParams, wait_for_completion=True, update_display=showResult)
-        # We don't need the CLI module node anymore, remove it to not clutter the scene with it
-        slicer.mrmlScene.RemoveNode(cliNode)
+    def loadLobes(self, source, segmentation=None, path=None):
+        logging.info(f"loadLobes({source}, {segmentation}, {path})")
+        # fake
+        return [f"Segment_{i}" for i in range(1, 6)] if source == "scene" else [1, 2, 3, 4, 5]
 
-        stopTime = time.time()
-        logging.info(f"Processing completed in {stopTime-startTime:.2f} seconds")
+    # Run
+
+    def run(self, params, progressCallback) -> bool:
+        """Fake run: report progress for each stage and structure. Returns False if cancelled."""
+        self._cancelRequested = False
+        stages = [stage for stage, enabled in [("preprocess", params.stagePreprocess),
+                                               ("centerlines", params.stageCenterlines),
+                                               ("anatomy", params.stageAnatomy)] if enabled]
+        stages.append("surface labels")
+        structures = [s for s in STRUCTURES if getattr(params, f"run{s.capitalize()}")]
+        for stage in stages:
+            for i, structure in enumerate(structures, start=1):
+                if self._cancelRequested:
+                    progressCallback(stage, structure, i - 1, len(structures), "Cancelled.")
+                    return False
+                progressCallback(stage, structure, i, len(structures), f"{stage}: {structure} done")
+                slicer.app.processEvents()
+                time.sleep(0.2)
+        return True
+
+    def cancel(self):
+        logging.info("cancel()")
+        self._cancelRequested = True
+
+    # Cut tree
+
+    def getGenerationRange(self, structure):
+        logging.info(f"getGenerationRange({structure})")
+        return (1, 12)  # fake
+
+    def previewCut(self, structure, generations):
+        logging.info(f"previewCut({structure}, {generations})")
+
+    def applyCut(self, structure, generations, cap=True):
+        logging.info(f"applyCut({structure}, {generations}, {cap})")
+
+    # Results
+
+    def loadResults(self, outputDir):
+        """Fake: an empty crossings table with the final columns."""
+        logging.info(f"loadResults({outputDir})")
+        if not self.crossingsTableNode or not slicer.mrmlScene.IsNodePresent(self.crossingsTableNode):
+            self.crossingsTableNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLTableNode", "VE-SCAN crossings")
+            self.crossingsTableNode.SetUseColumnTitleAsColumnHeader(True)
+            self.crossingsTableNode.SetLocked(True)
+            for name in CROSSING_COLUMNS:
+                self.crossingsTableNode.AddColumn().SetName(name)
+        return self.crossingsTableNode
+
+    def setVisibility(self, kind, visible):
+        logging.info(f"setVisibility({kind}, {visible})")
+
+    def setColorBy(self, arrayName):
+        logging.info(f"setColorBy({arrayName})")
+
+    def focusCrossing(self, crossingId):
+        logging.info(f"focusCrossing({crossingId})")
+
+    def exportStatistics(self, path):
+        logging.info(f"exportStatistics({path})")
 
 
 #
@@ -331,64 +454,19 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
 
 
 class VEScanTest(ScriptedLoadableModuleTest):
-    """
-    This is the test case for your scripted module.
-    Uses ScriptedLoadableModuleTest base class, available at:
-    https://github.com/Slicer/Slicer/blob/main/Base/Python/slicer/ScriptedLoadableModule.py
-    """
-
     def setUp(self):
-        """Do whatever is needed to reset the state - typically a scene clear will be enough."""
         slicer.mrmlScene.Clear()
 
     def runTest(self):
-        """Run as few or as many tests as needed here."""
         self.setUp()
-        self.test_VEScan1()
+        self.test_FakeRun()
 
-    def test_VEScan1(self):
-        """Ideally you should have several levels of tests.  At the lowest level
-        tests should exercise the functionality of the logic with different inputs
-        (both valid and invalid).  At higher levels your tests should emulate the
-        way the user would interact with your code and confirm that it still works
-        the way you intended.
-        One of the most important features of the tests is that it should alert other
-        developers when their changes will have an impact on the behavior of your
-        module.  For example, if a developer removes a feature that you depend on,
-        your test should break so they know that the feature is needed.
-        """
-
-        self.delayDisplay("Starting the test")
-
-        # Get/create input data
-
-        import SampleData
-
-        registerSampleData()
-        inputVolume = SampleData.downloadSample("VEScan1")
-        self.delayDisplay("Loaded test data set")
-
-        inputScalarRange = inputVolume.GetImageData().GetScalarRange()
-        self.assertEqual(inputScalarRange[0], 0)
-        self.assertEqual(inputScalarRange[1], 695)
-
-        outputVolume = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLScalarVolumeNode")
-        threshold = 100
-
-        # Test the module logic
-
+    def test_FakeRun(self):
         logic = VEScanLogic()
-
-        # Test algorithm with non-inverted threshold
-        logic.process(inputVolume, outputVolume, threshold, True)
-        outputScalarRange = outputVolume.GetImageData().GetScalarRange()
-        self.assertEqual(outputScalarRange[0], inputScalarRange[0])
-        self.assertEqual(outputScalarRange[1], threshold)
-
-        # Test algorithm with inverted threshold
-        logic.process(inputVolume, outputVolume, threshold, False)
-        outputScalarRange = outputVolume.GetImageData().GetScalarRange()
-        self.assertEqual(outputScalarRange[0], inputScalarRange[0])
-        self.assertEqual(outputScalarRange[1], inputScalarRange[1])
-
+        params = logic.getParameterNode()
+        steps = []
+        self.assertTrue(logic.run(params, lambda *args: steps.append(args)))
+        self.assertEqual(len(steps), 4 * 3)  # 3 stages + surface labels, 3 structures
+        self.assertEqual(logic.getGenerationRange("artery"), (1, 12))
+        self.assertEqual(logic.loadResults("").GetNumberOfColumns(), len(CROSSING_COLUMNS))
         self.delayDisplay("Test passed")
