@@ -41,7 +41,7 @@ Each input is either a file or a node already in the scene (for the structures, 
 
 ## Installation
 
-SlicerVeScan is not in the Slicer Extensions Index yet. To use it from the source:
+Tested with 3D Slicer 5.10 (numpy 1.26) and 5.12 (numpy 2.4), with the same results. SlicerVeScan is not in the Slicer Extensions Index yet. To use it from the source:
 
 1. Clone this repository.
 2. In Slicer: *Edit → Application Settings → Modules → Additional module paths*, add the `VeScan/` folder of the clone and restart Slicer.

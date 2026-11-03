@@ -1296,6 +1296,7 @@ class VeScanTest(ScriptedLoadableModuleTest):
         self.setUp()
         self.test_Geometry()
         self.test_Config()
+        slicer.mrmlScene.Clear()  # the tests change the module's parameter node: start the module from a clean one
 
     def test_Geometry(self):
         """A volume node gives the same Geometry as vescan reading its file with SimpleITK."""
