@@ -9,6 +9,11 @@ set(MODULE_PYTHON_SCRIPTS
 set(MODULE_PYTHON_RESOURCES
   Resources/Icons/${MODULE_NAME}.png
   Resources/UI/${MODULE_NAME}.ui
+  Resources/vescan_field.json
+  Resources/ColorTables/ColorTableCrossings_EN.csv
+  Resources/ColorTables/ColorTableLobeLabel_EN.csv
+  Resources/ColorTables/ColorTableLobesFissures_EN.csv
+  Resources/ColorTables/ColorTableVessels_EN.csv
   Resources/requirements.txt
   )
 

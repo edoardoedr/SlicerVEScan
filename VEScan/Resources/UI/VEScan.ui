@@ -2,7 +2,7 @@
 <ui version="4.0">
  <class>VEScan</class>
  <widget class="qMRMLWidget" name="VEScan">
-  <layout class="QVBoxLayout" name="layout_44">
+  <layout class="QVBoxLayout" name="layout_45">
    <item>
     <widget class="ctkCollapsibleButton" name="inputsCollapsibleButton">
      <property name="text">
@@ -11,11 +11,11 @@
      <property name="collapsed">
       <bool>false</bool>
      </property>
-     <layout class="QFormLayout" name="formLayout_19">
+     <layout class="QFormLayout" name="formLayout_20">
       <item row="0" column="0">
-       <widget class="QLabel" name="label_20">
+       <widget class="QLabel" name="label_21">
         <property name="text">
-         <string>CT volume:</string>
+         <string>CT (optional):</string>
         </property>
        </widget>
       </item>
@@ -105,7 +105,7 @@
        </layout>
       </item>
       <item row="1" column="0">
-       <widget class="QLabel" name="label_21">
+       <widget class="QLabel" name="label_22">
         <property name="text">
          <string>Artery:</string>
         </property>
@@ -180,7 +180,7 @@
        </layout>
       </item>
       <item row="2" column="0">
-       <widget class="QLabel" name="label_22">
+       <widget class="QLabel" name="label_23">
         <property name="text">
          <string>Veins:</string>
         </property>
@@ -255,7 +255,7 @@
        </layout>
       </item>
       <item row="3" column="0">
-       <widget class="QLabel" name="label_23">
+       <widget class="QLabel" name="label_24">
         <property name="text">
          <string>Airways:</string>
         </property>
@@ -330,7 +330,7 @@
        </layout>
       </item>
       <item row="4" column="0">
-       <widget class="QLabel" name="label_24">
+       <widget class="QLabel" name="label_25">
         <property name="text">
          <string>Airway wall:</string>
         </property>
@@ -405,7 +405,7 @@
        </layout>
       </item>
       <item row="5" column="0">
-       <widget class="QLabel" name="label_25">
+       <widget class="QLabel" name="label_26">
         <property name="text">
          <string>Field store:</string>
         </property>
@@ -425,16 +425,16 @@
        </widget>
       </item>
       <item row="6" column="0">
-       <widget class="QLabel" name="label_26">
+       <widget class="QLabel" name="label_27">
         <property name="text">
          <string>Lobes:</string>
         </property>
        </widget>
       </item>
       <item row="6" column="1">
-       <layout class="QVBoxLayout" name="layout_18">
+       <layout class="QVBoxLayout" name="layout_19">
         <item>
-         <layout class="QHBoxLayout" name="layout_17">
+         <layout class="QHBoxLayout" name="layout_18">
           <item>
            <widget class="QRadioButton" name="lobesSceneRadio">
             <property name="text">
@@ -459,7 +459,7 @@
            </widget>
           </item>
           <item>
-           <spacer name="spacer_16">
+           <spacer name="spacer_17">
             <property name="orientation">
              <enum>Qt::Horizontal</enum>
             </property>
@@ -500,17 +500,35 @@
             <string>lobesSegmentation</string>
            </property>
           </widget>
-          <widget class="ctkPathLineEdit" name="lobesPathEdit">
-           <property name="filters">
-            <set>ctkPathLineEdit::Files</set>
-           </property>
-           <property name="nameFilters">
-            <stringlist notr="true">
-             <string>*.nii.gz</string>
-             <string>*.nrrd</string>
-             <string>*.seg.nrrd</string>
-            </stringlist>
-           </property>
+          <widget class="QWidget" name="lobesFilePage">
+           <layout class="QHBoxLayout" name="layout_16">
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QLineEdit" name="lobesPathsEdit">
+              <property name="placeholderText">
+               <string>One label map, or one file per lobe</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QToolButton" name="lobesBrowseButton">
+              <property name="text">
+               <string>...</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
           </widget>
          </widget>
         </item>
@@ -557,16 +575,16 @@
      <property name="collapsed">
       <bool>false</bool>
      </property>
-     <layout class="QFormLayout" name="formLayout_32">
+     <layout class="QFormLayout" name="formLayout_33">
       <item row="0" column="0">
-       <widget class="QLabel" name="label_33">
+       <widget class="QLabel" name="label_34">
         <property name="text">
          <string>Method:</string>
         </property>
        </widget>
       </item>
       <item row="0" column="1">
-       <layout class="QHBoxLayout" name="layout_28">
+       <layout class="QHBoxLayout" name="layout_29">
         <item>
          <widget class="QRadioButton" name="fieldRadio">
           <property name="text">
@@ -588,7 +606,7 @@
          </widget>
         </item>
         <item>
-         <spacer name="spacer_27">
+         <spacer name="spacer_28">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
           </property>
@@ -603,14 +621,14 @@
        </layout>
       </item>
       <item row="1" column="0">
-       <widget class="QLabel" name="label_34">
+       <widget class="QLabel" name="label_35">
         <property name="text">
          <string>Structures:</string>
         </property>
        </widget>
       </item>
       <item row="1" column="1">
-       <layout class="QHBoxLayout" name="layout_30">
+       <layout class="QHBoxLayout" name="layout_31">
         <item>
          <widget class="QCheckBox" name="arteryCheck">
           <property name="text">
@@ -651,7 +669,7 @@
          </widget>
         </item>
         <item>
-         <spacer name="spacer_29">
+         <spacer name="spacer_30">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
           </property>
@@ -666,14 +684,14 @@
        </layout>
       </item>
       <item row="2" column="0">
-       <widget class="QLabel" name="label_35">
+       <widget class="QLabel" name="label_36">
         <property name="text">
          <string>Stages:</string>
         </property>
        </widget>
       </item>
       <item row="2" column="1">
-       <layout class="QVBoxLayout" name="layout_31">
+       <layout class="QVBoxLayout" name="layout_32">
         <item>
          <widget class="QCheckBox" name="preprocessCheck">
           <property name="text">
@@ -733,9 +751,9 @@
      <property name="collapsed">
       <bool>false</bool>
      </property>
-     <layout class="QFormLayout" name="formLayout_37">
+     <layout class="QFormLayout" name="formLayout_38">
       <item row="0" column="0">
-       <widget class="QLabel" name="label_38">
+       <widget class="QLabel" name="label_39">
         <property name="text">
          <string>Output folder:</string>
         </property>
@@ -749,7 +767,7 @@
        </widget>
       </item>
       <item row="1" column="0" colspan="2">
-       <layout class="QHBoxLayout" name="layout_36">
+       <layout class="QHBoxLayout" name="layout_37">
         <item>
          <widget class="QPushButton" name="runButton">
           <property name="text">
@@ -807,7 +825,7 @@
      <property name="collapsed">
       <bool>false</bool>
      </property>
-     <layout class="QGridLayout" name="gridLayout_39">
+     <layout class="QGridLayout" name="gridLayout_40">
       <item row="0" column="0">
        <widget class="QLabel" name="arteryGenerationsLabel">
         <property name="text">
@@ -930,16 +948,16 @@
      <property name="enabled">
       <bool>false</bool>
      </property>
-     <layout class="QFormLayout" name="formLayout_41">
+     <layout class="QFormLayout" name="formLayout_42">
       <item row="0" column="0">
-       <widget class="QLabel" name="label_42">
+       <widget class="QLabel" name="label_43">
         <property name="text">
          <string>Show:</string>
         </property>
        </widget>
       </item>
       <item row="0" column="1">
-       <layout class="QVBoxLayout" name="layout_40">
+       <layout class="QVBoxLayout" name="layout_41">
         <item>
          <widget class="QCheckBox" name="showSurfacesCheck">
           <property name="text">
@@ -966,7 +984,7 @@
            <string>Lobes / fissures</string>
           </property>
           <property name="checked">
-           <bool>false</bool>
+           <bool>true</bool>
           </property>
          </widget>
         </item>
@@ -976,14 +994,14 @@
            <string>Cut points</string>
           </property>
           <property name="checked">
-           <bool>false</bool>
+           <bool>true</bool>
           </property>
          </widget>
         </item>
        </layout>
       </item>
       <item row="1" column="0">
-       <widget class="QLabel" name="label_43">
+       <widget class="QLabel" name="label_44">
         <property name="text">
          <string>Color by:</string>
         </property>
