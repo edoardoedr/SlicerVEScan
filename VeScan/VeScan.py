@@ -1,12 +1,15 @@
 import contextlib
 import csv
 import dataclasses
+import importlib.metadata
 import importlib.util
 import json
 import logging
 import os
 import pathlib
+import re
 import shutil
+import sys
 import time
 import types
 from typing import Annotated
@@ -160,17 +163,44 @@ def isPathSet(path) -> bool:
     return str(path) not in ("", ".")
 
 
+def requiredVescanVersion() -> str:
+    """vescan-field version required by the module: the tag of the archive in Resources/requirements.txt."""
+    return re.search(r"/tags/v([\d.]+)\.zip", REQUIREMENTS_PATH.read_text()).group(1)
+
+
+def installedVescan():
+    """(version, editable) of the installed vescan-field, None if it is not installed."""
+    try:
+        dist = importlib.metadata.distribution("vescan-field")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+    directUrl = json.loads(dist.read_text("direct_url.json") or "{}")
+    return dist.version, directUrl.get("dir_info", {}).get("editable", False)
+
+
 def ensureVescanField() -> bool:
-    """Install vescan-field (Resources/requirements.txt) on first use; numpy stays at Slicer's version,
-    otherwise pip could upgrade it and break Slicer. False if the user declines."""
-    if importlib.util.find_spec("vescan_field"):
+    """Install vescan-field (Resources/requirements.txt) on first use, or update it when the installed version is
+    older than the required one; an editable install (development) is never replaced. numpy stays at Slicer's
+    version, otherwise pip could upgrade it and break Slicer. False if it is missing and the user declines."""
+    from packaging.version import Version
+    installed, required = installedVescan(), requiredVescanVersion()
+    if installed is None and importlib.util.find_spec("vescan_field"):
+        return True  # importable without package metadata (e.g. on the Python path): left as it is
+    if installed and (installed[1] or Version(installed[0]) >= Version(required)):
         return True
-    if not slicer.util.confirmOkCancelDisplay(_("VeScan needs the Python package vescan-field, install it now?"),
-                                              windowTitle="VeScan"):
-        return False
+    if installed:
+        question = _("VeScan needs vescan-field {required}, installed: {installed}. Update it now?").format(
+            required=required, installed=installed[0])
+    else:
+        question = _("VeScan needs the Python package vescan-field {required}, install it now?").format(required=required)
+    if not slicer.util.confirmOkCancelDisplay(question, windowTitle="VeScan"):
+        return installed is not None  # an older version still runs
     with slicer.util.displayPythonShell(), slicer.util.WaitCursor():
-        slicer.util.pip_install(["-r", str(REQUIREMENTS_PATH), f"numpy=={np.__version__}"])
+        slicer.util.pip_install(["--upgrade", "-r", str(REQUIREMENTS_PATH), f"numpy=={np.__version__}"])
     importlib.invalidate_caches()
+    if installed and "vescan_field" in sys.modules:
+        slicer.util.infoDisplay(_("vescan-field updated to {required}: restart Slicer to use it.").format(required=required),
+                                windowTitle="VeScan")
     return True
 
 

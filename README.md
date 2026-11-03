@@ -47,7 +47,7 @@ SlicerVeScan is not in the Slicer Extensions Index yet. To use it from the sourc
 2. In Slicer: *Edit → Application Settings → Modules → Additional module paths*, add the `VeScan/` folder of the clone and restart Slicer.
 3. Open the module **VeScan** (category *Chest Imaging*).
 
-The core, `vescan-field`, is installed on first use: at the first Run (or the first lobe loading) the module asks to install it into Slicer's Python, at the version pinned in [`VeScan/Resources/requirements.txt`](VeScan/Resources/requirements.txt) and keeping Slicer's numpy. No VMTK and no GPU are needed.
+The core, `vescan-field`, is installed on first use: at the first Run (or the first lobe loading) the module asks to install it into Slicer's Python, at the version pinned in [`VeScan/Resources/requirements.txt`](VeScan/Resources/requirements.txt) and keeping Slicer's numpy. When a new version of the extension requires a newer `vescan-field`, the module asks to update it (then restart Slicer). No VMTK and no GPU are needed.
 
 ## Usage
 
@@ -115,5 +115,7 @@ Every VeScan parameter that is not in the UI comes from [`VeScan/Resources/vesca
 3. Optional, to work on the core too: editable install from a local clone of VeScan-field, with Slicer's numpy pinned (otherwise pip upgrades it to numpy 2 and breaks Slicer):
    `/Applications/Slicer.app/Contents/bin/PythonSlicer -m pip install -e <VeScan-field clone> "numpy==1.26.4"`
 4. Edit `VeScan/VeScan.py` or `VeScan/Resources/UI/VeScan.ui` (*Edit UI* opens Qt Designer), then *Reload* in the module panel.
+
+**New VeScan-field release**: after its tag is pushed, run `python3 tools/sync_vescan.py <tag>` (e.g. `v0.1.2`). It checks the tag's version, points `requirements.txt` to it (users with an older `vescan-field` are then asked to update), copies the colour tables and lists the differences between the release's `example.json` and `vescan_field.json`, to review by hand.
 
 Open tasks are in [NEXT.md](NEXT.md).
