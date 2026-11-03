@@ -53,6 +53,7 @@ LOBES_COLOR_BY = [
     ("LobeSegment_Airway", [50, 51, 52, 53, 54]),
     ("FissureContact", [0, 60, 61, 62, 63]),
 ]
+FISSURE_VALUES = [60, 61, 62, 63]  # FissureContact of lobe_fissures.vtk
 CROSSING_COLUMNS = ["ID", "structure", "type", "lobes", "length mm", "angle deg"]
 
 # vescan_field config: every parameter is in this JSON, the UI overwrites only a few keys (VeScanLogic.buildConfig)
@@ -96,7 +97,7 @@ class VeScan(ScriptedLoadableModule):
     def __init__(self, parent):
         ScriptedLoadableModule.__init__(self, parent)
         self.parent.title = _("VeScan")
-        self.parent.categories = []  # top level of the module list
+        self.parent.categories = [""]  # top level of the module list, as Welcome and Data
         self.parent.dependencies = []
         self.parent.contributors = ["Edoardo De Rose (KIT, IBT)"]
         self.parent.helpText = _("""
@@ -1065,7 +1066,8 @@ class VeScanLogic(ScriptedLoadableModuleLogic):
         elif kind == "lobes":
             self._colorModel(node, self.lobesColorBy[0], LOBES_TABLE, self.lobesColorBy[1])
         elif kind == "fissures":
-            self._colorModel(node, "Fissure", LOBES_TABLE)
+            # FissureContact, not Fissure: it splits the right oblique fissure into upper and lower part
+            self._colorModel(node, "FissureContact", LOBES_TABLE, FISSURE_VALUES)
         self.updateLegends()
         slicer.app.processEvents()
         return node
@@ -1077,7 +1079,7 @@ class VeScanLogic(ScriptedLoadableModuleLogic):
         node = node or slicer.util.loadColorTable(str(COLOR_TABLES_DIR / f"{name}.csv"))
         if values is None:
             return node
-        subsetName = f"{name} {values[-1]}"
+        subsetName = f"{name} {'-'.join(map(str, values))}"
         subset = slicer.mrmlScene.GetFirstNode(subsetName, "vtkMRMLColorTableNode")
         if not subset:
             subset = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLColorTableNode", subsetName)
@@ -1250,7 +1252,8 @@ class VeScanLogic(ScriptedLoadableModuleLogic):
         """One colour legend per group in the 3D view, on the first shown model coloured by an array:
         vessels (Color by) on the right, lobes (Lobes color by) on the left."""
         colorsLogic = slicer.modules.colors.logic()
-        for kinds, x in ((("centerline", "surface"), 0.9), (("lobes",), 0.02)):
+        # width of a legend with names: it sets the text size (the font size of the legend is not used)
+        for kinds, x, namesWidth in ((("centerline", "surface"), 0.9, 0.25), (("lobes",), 0.02, 0.4)):
             nodes = sorted(((kinds.index(k), node) for (k, _structure), node in self._models.items()
                             if k in kinds and slicer.mrmlScene.IsNodePresent(node)), key=lambda kn: kn[0])
             shown = [node for _i, node in nodes if self.showLegends and node.GetDisplayVisibility()
@@ -1268,7 +1271,7 @@ class VeScanLogic(ScriptedLoadableModuleLogic):
                 legend.SetUseColorNamesForLabels(names)
                 legend.SetLabelFormat(legend.GetDefaultTextLabelFormat() if names else legend.GetDefaultNumericLabelFormat())
                 legend.SetPosition(x, 0.5)
-                legend.SetSize(0.25 if names else 0.08, 0.6)  # the text is scaled to the legend width
+                legend.SetSize(namesWidth if names else 0.08, 0.6)  # the text is scaled to the legend width
                 legend.SetVisibility2D(False)
                 legend.SetVisibility(True)
 

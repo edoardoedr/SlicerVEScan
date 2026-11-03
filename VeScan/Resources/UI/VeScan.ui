@@ -758,9 +758,9 @@
      <property name="collapsed">
       <bool>false</bool>
      </property>
-     <layout class="QFormLayout" name="formLayout_38">
+     <layout class="QFormLayout" name="formLayout_37">
       <item row="0" column="0">
-       <widget class="QLabel" name="label_39">
+       <widget class="QLabel" name="label_38">
         <property name="text">
          <string>Output folder (optional):</string>
         </property>
@@ -776,55 +776,55 @@
         </property>
        </widget>
       </item>
-      <item row="1" column="0" colspan="2">
-       <layout class="QHBoxLayout" name="layout_37">
-        <item>
-         <widget class="QPushButton" name="runButton">
-          <property name="text">
-           <string>Run</string>
-          </property>
-          <property name="enabled">
-           <bool>false</bool>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="cancelButton">
-          <property name="text">
-           <string>Cancel</string>
-          </property>
-          <property name="enabled">
-           <bool>false</bool>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item row="2" column="0" colspan="2">
-       <widget class="QProgressBar" name="progressBar">
-        <property name="value">
-         <number>0</number>
-        </property>
-       </widget>
-      </item>
-      <item row="3" column="0" colspan="2">
-       <widget class="QLabel" name="statusLabel">
-        <property name="text">
-         <string/>
-        </property>
-       </widget>
-      </item>
-      <item row="4" column="0" colspan="2">
-       <widget class="QPlainTextEdit" name="logText">
-        <property name="readOnly">
-         <bool>true</bool>
-        </property>
-        <property name="maximumHeight">
-         <number>120</number>
-        </property>
-       </widget>
-      </item>
      </layout>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="layout_39">
+     <item>
+      <widget class="QPushButton" name="runButton">
+       <property name="text">
+        <string>Run</string>
+       </property>
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancelButton">
+       <property name="text">
+        <string>Cancel</string>
+       </property>
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QProgressBar" name="progressBar">
+     <property name="value">
+      <number>0</number>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="statusLabel">
+     <property name="text">
+      <string/>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPlainTextEdit" name="logText">
+     <property name="readOnly">
+      <bool>true</bool>
+     </property>
+     <property name="maximumHeight">
+      <number>120</number>
+     </property>
     </widget>
    </item>
    <item>
