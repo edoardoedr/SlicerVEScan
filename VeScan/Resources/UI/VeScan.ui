@@ -2,7 +2,7 @@
 <ui version="4.0">
  <class>VeScan</class>
  <widget class="qMRMLWidget" name="VeScan">
-  <layout class="QVBoxLayout" name="layout_54">
+  <layout class="QVBoxLayout" name="layout_56">
    <item>
     <widget class="ctkCollapsibleButton" name="inputsCollapsibleButton">
      <property name="text">
@@ -914,7 +914,114 @@
         </property>
        </widget>
       </item>
-      <item row="3" column="0" colspan="2">
+      <item row="3" column="0">
+       <widget class="QLabel" name="cutLobesLabel">
+        <property name="text">
+         <string>Cut in lobes:</string>
+        </property>
+        <property name="toolTip">
+         <string>The generations are cut only in the checked lobes: the branches that reach another lobe are kept whole. Needs the Anatomy stage.</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <layout class="QHBoxLayout" name="layout_42">
+        <item>
+         <widget class="QCheckBox" name="cutLobeRULCheck">
+          <property name="text">
+           <string>RUL</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+          <property name="toolTip">
+           <string>The generations are cut only in the checked lobes: the branches that reach another lobe are kept whole. Needs the Anatomy stage.</string>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>cutLobeRUL</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="cutLobeRMLCheck">
+          <property name="text">
+           <string>RML</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+          <property name="toolTip">
+           <string>The generations are cut only in the checked lobes: the branches that reach another lobe are kept whole. Needs the Anatomy stage.</string>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>cutLobeRML</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="cutLobeRLLCheck">
+          <property name="text">
+           <string>RLL</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+          <property name="toolTip">
+           <string>The generations are cut only in the checked lobes: the branches that reach another lobe are kept whole. Needs the Anatomy stage.</string>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>cutLobeRLL</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="cutLobeLULCheck">
+          <property name="text">
+           <string>LUL</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+          <property name="toolTip">
+           <string>The generations are cut only in the checked lobes: the branches that reach another lobe are kept whole. Needs the Anatomy stage.</string>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>cutLobeLUL</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="cutLobeLLLCheck">
+          <property name="text">
+           <string>LLL</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+          <property name="toolTip">
+           <string>The generations are cut only in the checked lobes: the branches that reach another lobe are kept whole. Needs the Anatomy stage.</string>
+          </property>
+          <property name="SlicerParameterName" stdset="0">
+           <string>cutLobeLLL</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacer_41">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>0</width>
+            <height>0</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item row="4" column="0" colspan="2">
        <widget class="QCheckBox" name="capCheck">
         <property name="text">
          <string>Cap the clipped surface</string>
@@ -927,7 +1034,7 @@
         </property>
        </widget>
       </item>
-      <item row="4" column="0" colspan="2">
+      <item row="5" column="0" colspan="2">
        <widget class="QCheckBox" name="previewCheck">
         <property name="text">
          <string>Live preview</string>
@@ -937,7 +1044,7 @@
         </property>
        </widget>
       </item>
-      <item row="5" column="0" colspan="2">
+      <item row="6" column="0" colspan="2">
        <widget class="QPushButton" name="applyCutButton">
         <property name="text">
          <string>Apply cut</string>
@@ -958,39 +1065,39 @@
      <property name="enabled">
       <bool>false</bool>
      </property>
-     <layout class="QFormLayout" name="formLayout_50">
+     <layout class="QFormLayout" name="formLayout_52">
       <item row="0" column="0">
-       <widget class="QLabel" name="label_51">
+       <widget class="QLabel" name="label_53">
         <property name="text">
          <string>Show:</string>
         </property>
        </widget>
       </item>
       <item row="0" column="1">
-       <layout class="QGridLayout" name="gridLayout_41">
+       <layout class="QGridLayout" name="gridLayout_43">
         <item row="0" column="1">
-         <widget class="QLabel" name="label_42">
+         <widget class="QLabel" name="label_44">
           <property name="text">
            <string>Artery</string>
           </property>
          </widget>
         </item>
         <item row="0" column="2">
-         <widget class="QLabel" name="label_43">
+         <widget class="QLabel" name="label_45">
           <property name="text">
            <string>Veins</string>
           </property>
          </widget>
         </item>
         <item row="0" column="3">
-         <widget class="QLabel" name="label_44">
+         <widget class="QLabel" name="label_46">
           <property name="text">
            <string>Airways</string>
           </property>
          </widget>
         </item>
         <item row="1" column="0">
-         <widget class="QLabel" name="label_45">
+         <widget class="QLabel" name="label_47">
           <property name="text">
            <string>Labelled surfaces</string>
           </property>
@@ -1018,7 +1125,7 @@
          </widget>
         </item>
         <item row="2" column="0">
-         <widget class="QLabel" name="label_46">
+         <widget class="QLabel" name="label_48">
           <property name="text">
            <string>Centerlines</string>
           </property>
@@ -1046,7 +1153,7 @@
          </widget>
         </item>
         <item row="3" column="0">
-         <widget class="QLabel" name="label_47">
+         <widget class="QLabel" name="label_49">
           <property name="text">
            <string>Cut points</string>
           </property>
@@ -1076,7 +1183,7 @@
        </layout>
       </item>
       <item row="1" column="0" colspan="2">
-       <layout class="QHBoxLayout" name="layout_49">
+       <layout class="QHBoxLayout" name="layout_51">
         <item>
          <widget class="QCheckBox" name="showLobesCheck">
           <property name="text">
@@ -1098,7 +1205,7 @@
          </widget>
         </item>
         <item>
-         <spacer name="spacer_48">
+         <spacer name="spacer_50">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
           </property>
@@ -1113,7 +1220,7 @@
        </layout>
       </item>
       <item row="2" column="0">
-       <widget class="QLabel" name="label_52">
+       <widget class="QLabel" name="label_54">
         <property name="text">
          <string>Color by:</string>
         </property>
@@ -1144,7 +1251,7 @@
        </widget>
       </item>
       <item row="3" column="0">
-       <widget class="QLabel" name="label_53">
+       <widget class="QLabel" name="label_55">
         <property name="text">
          <string>Lobes color by:</string>
         </property>

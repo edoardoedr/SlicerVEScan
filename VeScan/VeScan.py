@@ -54,6 +54,7 @@ LOBES_COLOR_BY = [
     ("FissureContact", [0, 60, 61, 62, 63]),
 ]
 FISSURE_VALUES = [60, 61, 62, 63]  # FissureContact of lobe_fissures.vtk
+PREVIEW_ARRAY = "CutPreviewGeneration"  # centerline cell array of the live preview (VeScanLogic.previewCut)
 CROSSING_COLUMNS = ["ID", "structure", "type", "lobes", "length mm", "angle deg"]
 
 # vescan_field config: every parameter is in this JSON, the UI overwrites only a few keys (VeScanLogic.buildConfig)
@@ -170,6 +171,12 @@ class VeScanParameterNode:
     veinsGenerations: int = 6
     airwaysGenerations: int = 6
     capSurface: bool = True
+    # lobes where the generations are cut (pipeline.clip.generation_lobes; all = null, as in the config)
+    cutLobeRUL: bool = True
+    cutLobeRML: bool = True
+    cutLobeRLL: bool = True
+    cutLobeLUL: bool = True
+    cutLobeLLL: bool = True
 
 
 def isPathSet(path) -> bool:
@@ -292,6 +299,8 @@ class VeScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         for name in STRUCTURES:
             getattr(self.ui, f"{name}GenerationsSlider").valueChanged.connect(
                 lambda value, n=name: self.onGenerationsChanged(n, value))
+        for lobe in LOBES:
+            getattr(self.ui, f"cutLobe{lobe}Check").toggled.connect(self.onCutLobesChanged)
         self.ui.previewCheck.toggled.connect(self.onPreviewToggled)
         self.ui.applyCutButton.clicked.connect(self.onApplyCut)
 
@@ -610,21 +619,45 @@ class VeScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 slider.value = min(max(saved, slider.minimum), slider.maximum) if keepGenerations else slider.maximum
         self.ui.clipCollapsibleButton.visible = bool(withTree)
         self.ui.clipCollapsibleButton.collapsed = False
+        # lobe checks: only the lobes of the run, and only with the anatomy (Reaches_<LOBE> arrays)
+        byLobe = any(self.logic.canCutByLobe(s) for s in withTree)
+        runLobes = self.logic.runLobes()
+        self.ui.cutLobesLabel.enabled = byLobe
+        for lobe in LOBES:
+            getattr(self.ui, f"cutLobe{lobe}Check").enabled = byLobe and lobe in runLobes
+        self._updateApplyCut()
+
+    def _cutLobes(self):
+        """pipeline.clip.generation_lobes from the lobe checks (None: all the lobes of the run; []: none)."""
+        # from the checks: toggled reaches this widget before connectGui updates the parameter node
+        return self.logic.generationLobes([lobe for lobe in LOBES if getattr(self.ui, f"cutLobe{lobe}Check").checked])
+
+    def _updateApplyCut(self) -> None:
+        withTree = [s for s in STRUCTURES if self.logic.hasCenterline(s)]
         canCut = any(self.logic.canCut(s) for s in withTree)
-        self.ui.applyCutButton.enabled = canCut
-        self.ui.applyCutButton.toolTip = "" if canCut else _(
-            "The files of the run are not in the output folder anymore (temporary folder, or moved): run again to cut.")
+        noLobe = canCut and any(self.logic.canCutByLobe(s) for s in withTree) and self._cutLobes() == []
+        self.ui.applyCutButton.enabled = canCut and not noLobe
+        self.ui.applyCutButton.toolTip = (
+            "" if canCut and not noLobe else _("Check at least one lobe to cut.") if noLobe else
+            _("The files of the run are not in the output folder anymore (temporary folder, or moved): run again to cut."))
 
     def onGenerationsChanged(self, structure, value) -> None:
         self._setParameter(f"{structure}Generations", int(value))
         if self.ui.previewCheck.checked:
-            self.logic.previewCut(structure, int(value))
+            self.logic.previewCut(structure, int(value), self._cutLobes())
+
+    def onCutLobesChanged(self) -> None:
+        if not self._parameterNode:
+            return
+        self._updateApplyCut()
+        if self.ui.previewCheck.checked:
+            self.onPreviewToggled(True)
 
     def onPreviewToggled(self, enabled) -> None:
         for name in STRUCTURES:
             if self.logic.hasCenterline(name):
                 generations = getattr(self._parameterNode, f"{name}Generations") if enabled else None
-                self.logic.previewCut(name, generations)
+                self.logic.previewCut(name, generations, self._cutLobes())
         if not enabled:
             self.logic.setColorBy(*COLOR_BY[self.ui.colorByCombo.currentIndex])
 
@@ -633,7 +666,7 @@ class VeScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             for name in STRUCTURES:
                 if self.logic.canCut(name):
                     self.logic.applyCut(name, getattr(self._parameterNode, f"{name}Generations"),
-                                        self._parameterNode.capSurface)
+                                        self._parameterNode.capSurface, self._cutLobes())
             for kind, structure, check in self._showChecks():
                 if kind == "cutPoints":
                     self.onDisplayChanged(kind, check.checked, structure)
@@ -1142,14 +1175,52 @@ class VeScanLogic(ScriptedLoadableModuleLogic):
         generation = slicer.util.arrayFromModelCellData(self._models[("centerline", structure)], "Generation")
         return int(generation.min()), int(generation.max())
 
-    def previewCut(self, structure, generations):
-        """Hide the centerline cells with Generation > generations (None: show all). The display
-        threshold works only with scalars shown, so the preview colours the centerline by Generation."""
-        display = self._models[("centerline", structure)].GetDisplayNode()
+    def runLobes(self) -> list:
+        """Lobes of the run (keys of the contexts' lobes), in LOBES order."""
+        lobes = {lobe for ctx in self.contexts.values() for lobe in ctx.lobes}
+        return [lobe for lobe in LOBES if lobe in lobes]
+
+    def canCutByLobe(self, structure) -> bool:
+        """The cut limited to some lobes needs the Reaches_<LOBE> arrays of anatomical_segments.vtk (stage anatomy)."""
+        return structure in self.contexts and self.contexts[structure].paths.anatomical_segments.exists()
+
+    def generationLobes(self, lobes):
+        """pipeline.clip.generation_lobes for the checked lobes: None when they are all the lobes of the run."""
+        lobes = [lobe for lobe in self.runLobes() if lobe in lobes]
+        return None if set(lobes) == set(self.runLobes()) else lobes
+
+    def _previewGeneration(self, node, lobes):
+        """Generation of the centerline cells, -1 for the groups kept at any generation: the ones that reach a
+        lobe outside `lobes` (as vescan_field.stages.clip.cut.groups_outside)."""
+        from vtk.util.numpy_support import numpy_to_vtk
+        polyData = node.GetPolyData()
+        generation = slicer.util.arrayFromModelCellData(node, "Generation").astype(np.int32)
+        if lobes is not None:
+            group = slicer.util.arrayFromModelCellData(node, "GroupId").astype(int)
+            exempt = set()
+            for lobe in set(self.runLobes()) - set(lobes):
+                if polyData.GetCellData().GetArray(f"Reaches_{lobe}") is not None:
+                    exempt |= set(group[slicer.util.arrayFromModelCellData(node, f"Reaches_{lobe}") > 0].tolist())
+            generation[np.isin(group, list(exempt))] = -1
+        array = numpy_to_vtk(generation, deep=True)
+        array.SetName(PREVIEW_ARRAY)
+        polyData.GetCellData().RemoveArray(PREVIEW_ARRAY)
+        polyData.GetCellData().AddArray(array)
+        polyData.Modified()
+
+    def previewCut(self, structure, generations, lobes=None):
+        """Hide the centerline cells with Generation > generations (None: show all), only in `lobes` (None: all,
+        see generationLobes). The display threshold works only with scalars shown, so the preview colours
+        the centerline by generation."""
+        node = self._models[("centerline", structure)]
+        display = node.GetDisplayNode()
         if generations is None:
             display.SetThresholdEnabled(False)
             return
-        display.SetActiveScalar("Generation", vtk.vtkAssignAttribute.CELL_DATA)
+        if not self.canCutByLobe(structure):
+            lobes = None
+        self._previewGeneration(node, lobes)
+        display.SetActiveScalar(PREVIEW_ARRAY, vtk.vtkAssignAttribute.CELL_DATA)
         display.SetAndObserveColorNodeID("vtkMRMLColorTableNodeRainbow")
         display.SetScalarRangeFlag(slicer.vtkMRMLDisplayNode.UseDataScalarRange)
         display.SetScalarVisibility(True)
@@ -1157,11 +1228,14 @@ class VeScanLogic(ScriptedLoadableModuleLogic):
         display.SetThresholdEnabled(True)
         self.updateLegends()
 
-    def applyCut(self, structure, generations, cap=True):
+    def applyCut(self, structure, generations, cap=True, lobes=None):
+        """vescan's clip stage; lobes: pipeline.clip.generation_lobes (None: all the lobes, see generationLobes)."""
         from vescan_field.config import ClipConfig
         from vescan_field.stages import clip
         ctx = self.contexts[structure]
-        clip.run(ctx, ClipConfig(max_generations=generations, cap=cap))
+        if not self.canCutByLobe(structure):
+            lobes = None
+        clip.run(ctx, ClipConfig(max_generations=generations, cap=cap, generation_lobes=lobes))
         self._showModel("surface", structure, ctx.paths.clipped_surface)
         self._showMarkups("cutPoints", structure, ctx.paths.cut_points)
 
@@ -1198,10 +1272,14 @@ class VeScanLogic(ScriptedLoadableModuleLogic):
         self.lobesNode = self._inputs.get("lobes", (None, None))[1]
         if outputDir and importlib.util.find_spec("vescan_field"):
             from vescan_field.paths import PipelinePaths, final_export_dir
+            configPath = pathlib.Path(outputDir) / "vescan_config.json"
+            enabled = json.loads(configPath.read_text())["pipeline"]["lobes"].get("enabled") if configPath.exists() else None
+            lobes = dict.fromkeys(enabled or LOBES)  # the clip stage uses only the lobe names
             for structure in STRUCTURES:
                 paths = PipelinePaths(final_export_dir(outputDir, structure))
                 if self.hasCenterline(structure) and paths.branch_tree.exists():
-                    self.contexts[structure] = types.SimpleNamespace(structure=structure, paths=paths, timings={})
+                    self.contexts[structure] = types.SimpleNamespace(structure=structure, paths=paths, lobes=lobes,
+                                                                     timings={})
         self._readStatistics()
 
     def loadResults(self):

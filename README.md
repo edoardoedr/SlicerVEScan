@@ -58,7 +58,7 @@ The core, `vescan-field`, is installed on first use: at the first Run (or the fi
 2. **Method.** Choose the structures (artery, veins, airways) and the stages: *Preprocess surfaces*, *Centerline extraction*, *Anatomy*. Surface labels are always computed.
 3. **Output.** Choose the output folder, or leave it empty to work in a temporary folder that is removed when the scene is closed (save the scene to keep the results). The folder is required when *Preprocess* or *Centerlines* is off: the results of a previous run are read from it.
 4. **Run.** The progress bar follows the stages, the log shows VeScan's messages, and each output appears in 3D when it is written: lobes and fissures, surfaces, centerline trees, anatomical labels. *Cancel* stops after the current step.
-5. **Cut tree.** One slider per structure sets the number of generations to keep. *Live preview* hides the deeper generations of the centerlines while you move the sliders; *Apply cut* runs VeScan's clip stage and shows the clipped surfaces (optionally capped) with the cut points.
+5. **Cut tree.** One slider per structure sets the number of generations to keep. *Cut in lobes* limits the cut to the checked lobes (all by default): the branches that reach another lobe are kept whole (needs *Anatomy*). *Live preview* hides the deeper generations of the centerlines while you move the sliders; *Apply cut* runs VeScan's clip stage and shows the clipped surfaces (optionally capped) with the cut points.
 
 ![Cutting the trees: live preview, then Apply cut](docs/screenshots/clipping.gif)
 
