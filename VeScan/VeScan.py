@@ -96,12 +96,25 @@ class VeScan(ScriptedLoadableModule):
     def __init__(self, parent):
         ScriptedLoadableModule.__init__(self, parent)
         self.parent.title = _("VeScan")
-        self.parent.categories = [_("Chest Imaging")]
+        self.parent.categories = []  # top level of the module list
         self.parent.dependencies = []
         self.parent.contributors = ["Edoardo De Rose (KIT, IBT)"]
         self.parent.helpText = _("""
-Centerline trees of the pulmonary arteries, veins and airways, anatomical branch labels,
-crossing vessels and tree cutting. See <a href="https://github.com/edoardoedr/VeScan-field">VeScan</a>.
+<b>VeScan</b> builds the centerline trees of the pulmonary arteries, veins and airways, labels every branch
+with its anatomical segment, finds the vessels that cross the interlobar fissures and cuts the trees to a
+number of generations.
+<br><br>
+<b>Inputs</b> (from <a href="https://github.com/edoardoedr/haversack">haversack</a>):
+<ul>
+<li>the structure masks (arteries, veins, airways, optional airway wall),</li>
+<li>the ranked store <i>lung_vessels.duckn.zip</i>,</li>
+<li>the lobe masks (for Preprocess and Anatomy), the CT (optional).</li>
+</ul>
+<b>Steps</b>: set the inputs, choose structures and stages, Run; then cut the trees in <i>Cut tree</i>
+and explore the labels and crossing vessels in <i>Results</i>.
+<br><br>
+User guide: <a href="https://github.com/edoardoedr/SlicerVeScan#usage">SlicerVeScan</a>.
+Method and output files: <a href="https://github.com/edoardoedr/VeScan-field">VeScan-field</a>.
 """)
         self.parent.acknowledgementText = _("""
 Developed at the Institute of Biomedical Engineering (IBT), Karlsruhe Institute of Technology (KIT).

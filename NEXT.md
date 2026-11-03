@@ -1,10 +1,9 @@
 # Next steps
 
 ## Extension
-- [ ] Module help (`parent.helpText`: inputs, outputs, link to the docs) and acknowledgement (`parent.acknowledgementText`: funding, VeScan citation).
-- [ ] Module category (now "Chest Imaging").
-- [ ] `EXTENSION_SCREENSHOTURLS` in the top-level `CMakeLists.txt` (raw GitHub URLs of `docs/screenshots/`, after the push).
-- [ ] Rename the GitHub repo `SlicerVEScan` → `SlicerVeScan` (homepage and icon URLs already use the new name); optionally the local folder too (then update Slicer's additional module path).
+- [ ] Module acknowledgement (`parent.acknowledgementText`: institutions, funding, VeScan citation) and contributors.
+- [ ] Choose the extension category (`EXTENSION_CATEGORY` in the top-level `CMakeLists.txt`, now missing; needed for the Extensions Index / Extension Manager). The module itself has no category (top level of the module list).
+- [ ] Optional: rename the local folder `SlicerVEScan` → `SlicerVeScan` (the GitHub repo is renamed; then update Slicer's additional module path).
 - [ ] Test with a small sample case in `VeScanTest` (now: geometry and config only).
 
 ## VeScan-field

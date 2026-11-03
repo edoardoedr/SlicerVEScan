@@ -45,7 +45,7 @@ Tested with 3D Slicer 5.10 (numpy 1.26) and 5.12 (numpy 2.4), with the same resu
 
 1. Clone this repository.
 2. In Slicer: *Edit → Application Settings → Modules → Additional module paths*, add the `VeScan/` folder of the clone and restart Slicer.
-3. Open the module **VeScan** (category *Chest Imaging*).
+3. Open the module **VeScan** (top level of the module list, or search it with the module finder).
 
 The core, `vescan-field`, is installed on first use: at the first Run (or the first lobe loading) the module asks to install it into Slicer's Python, at the version pinned in [`VeScan/Resources/requirements.txt`](VeScan/Resources/requirements.txt) and keeping Slicer's numpy. When a new version of the extension requires a newer `vescan-field`, the module asks to update it (then restart Slicer). No VMTK and no GPU are needed.
 

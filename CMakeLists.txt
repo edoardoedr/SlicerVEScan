@@ -8,7 +8,7 @@ set(EXTENSION_HOMEPAGE "https://github.com/edoardoedr/SlicerVeScan")
 set(EXTENSION_CONTRIBUTORS "Edoardo De Rose (KIT, IBT)")
 set(EXTENSION_DESCRIPTION "Lung vessel centerline trees, anatomical branch labels and crossing vessels (VeScan)")
 set(EXTENSION_ICONURL "https://raw.githubusercontent.com/edoardoedr/SlicerVeScan/main/SlicerVeScan.png")
-set(EXTENSION_SCREENSHOTURLS "")
+set(EXTENSION_SCREENSHOTURLS "https://raw.githubusercontent.com/edoardoedr/SlicerVeScan/main/docs/screenshots/overview.png https://raw.githubusercontent.com/edoardoedr/SlicerVeScan/main/docs/screenshots/surfaces_all.png https://raw.githubusercontent.com/edoardoedr/SlicerVeScan/main/docs/screenshots/centerlines_all.png https://raw.githubusercontent.com/edoardoedr/SlicerVeScan/main/docs/screenshots/crossings.png https://raw.githubusercontent.com/edoardoedr/SlicerVeScan/main/docs/screenshots/cut_applied.png")
 set(EXTENSION_DEPENDS "NA") # Specified as a list or "NA" if no dependencies
 
 #-----------------------------------------------------------------------------
