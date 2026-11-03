@@ -1,11 +1,14 @@
 import contextlib
 import csv
 import dataclasses
-import importlib
+import importlib.util
 import json
 import logging
 import os
 import pathlib
+import shutil
+import time
+import types
 from typing import Annotated
 
 import numpy as np
@@ -25,11 +28,12 @@ from slicer import vtkMRMLScalarVolumeNode, vtkMRMLSegmentationNode
 
 
 STRUCTURES = ["artery", "veins", "airways"]
+SEGMENT_INPUTS = STRUCTURES + ["airwayWall"]  # scene source: a segment of a segmentation (qMRMLSegmentSelectorWidget)
 INPUTS = ["ct", "artery", "veins", "airways", "airwayWall", "lobes"]
 PATH_INPUTS = ["ct", "artery", "veins", "airways", "airwayWall"]  # one path each; lobes: several files
 SEGMENTATION_FILES = "Segmentations (*.nii.gz *.nii *.nrrd *.seg.nrrd)"
 LOBES = ["RUL", "RML", "RLL", "LUL", "LLL"]
-# Color by combo -> (array, VE-SCAN colour table; None = continuous Rainbow)
+# Color by combo -> (array, VeScan colour table; None = continuous Rainbow)
 COLOR_BY = [
     ("AnatomicalSegmentPoint", "ColorTableVessels_EN"),
     ("LobeLabelPoint", "ColorTableLobeLabel_EN"),
@@ -38,14 +42,26 @@ COLOR_BY = [
 ]
 COLOR_TABLES_DIR = pathlib.Path(__file__).parent / "Resources" / "ColorTables"
 LOBES_TABLE = "ColorTableLobesFissures_EN"
-# lobe_segments.vtk is labelled per vessel type: the array of the first structure run is shown
-LOBE_SEGMENT_ARRAY = {"artery": "LobeSegment_Artery", "veins": "LobeSegment_Vein", "airways": "LobeSegment_Airway"}
+# Lobes color by combo -> (cell array of lobe_segments.vtk, its values in LOBES_TABLE): one labelling per vessel
+# type, or the fissure contacts; the legend lists only these values
+LOBES_COLOR_BY = [
+    ("LobeSegment_Artery", [40, 41, 42, 43, 44]),
+    ("LobeSegment_Vein", [30, 31, 32, 33, 34]),
+    ("LobeSegment_Airway", [50, 51, 52, 53, 54]),
+    ("FissureContact", [0, 60, 61, 62, 63]),
+]
 CROSSING_COLUMNS = ["ID", "structure", "type", "lobes", "length mm", "angle deg"]
 
 # vescan_field config: every parameter is in this JSON, the UI overwrites only a few keys (VEScanLogic.buildConfig)
 CONFIG_PATH = pathlib.Path(__file__).parent / "Resources" / "vescan_field.json"
+REQUIREMENTS_PATH = pathlib.Path(__file__).parent / "Resources" / "requirements.txt"
 AIRWAY_WALL_CLASS = "lung_airways_wall"
 RAS_TO_LPS = np.diag([-1.0, -1.0, 1.0])
+# node attributes saved with the scene, to find the module's nodes again when a scene is loaded
+INPUT_ATTRIBUTE = "VEScan.Input"        # file input name (value of _inputs) ...
+INPUT_KEY_ATTRIBUTE = "VEScan.InputKey"  # ... and the path(s) it was loaded from (JSON)
+MODEL_ATTRIBUTE = "VEScan.Model"        # "<kind>/<structure>" (key of _models)
+TABLE_ATTRIBUTE = "VEScan.Table"        # "crossings"
 
 # stage -> (model kind, PipelinePaths attribute) shown in 3D after the stage
 STAGE_OUTPUT = {
@@ -63,6 +79,7 @@ MODEL_STYLE = {
     "fissures": ((1.0, 0.6, 0.1), 0.7),
 }
 # Results check box -> model kinds
+SHOW_KINDS = ["surfaces", "centerlines", "cutPoints"]  # Results > Show: one check per kind and structure
 VISIBILITY_KINDS = {"surfaces": ["surface"], "centerlines": ["centerline"], "lobes": ["lobes", "fissures"],
                     "cutPoints": ["cutPoints"]}
 
@@ -75,13 +92,13 @@ VISIBILITY_KINDS = {"surfaces": ["surface"], "centerlines": ["centerline"], "lob
 class VEScan(ScriptedLoadableModule):
     def __init__(self, parent):
         ScriptedLoadableModule.__init__(self, parent)
-        self.parent.title = _("VE-SCAN")
+        self.parent.title = _("VeScan")
         self.parent.categories = [_("Chest Imaging")]
         self.parent.dependencies = []
         self.parent.contributors = ["Edoardo De Rose (KIT, IBT)"]
         self.parent.helpText = _("""
 Centerline trees of the pulmonary arteries, veins and airways, anatomical branch labels,
-crossing vessels and tree cutting. See <a href="https://github.com/edoardoedr/VESCAN_develop">VE-SCAN</a>.
+crossing vessels and tree cutting. See <a href="https://github.com/edoardoedr/VeScan-field">VeScan</a>.
 """)
         self.parent.acknowledgementText = _("""
 Developed at the Institute of Biomedical Engineering (IBT), Karlsruhe Institute of Technology (KIT).
@@ -109,7 +126,17 @@ class VEScanParameterNode:
     airwaysPath: pathlib.Path
     airwayWallPath: pathlib.Path
     lobesPaths: str = ""  # one label map or one file per lobe, separated by ";"
+    # scene source of the structures: segmentation + segment ID (synced by hand, see VEScanWidget._onSegmentChanged)
+    arterySegmentation: vtkMRMLSegmentationNode
+    arterySegmentId: str = ""
+    veinsSegmentation: vtkMRMLSegmentationNode
+    veinsSegmentId: str = ""
+    airwaysSegmentation: vtkMRMLSegmentationNode
+    airwaysSegmentId: str = ""
+    airwayWallSegmentation: vtkMRMLSegmentationNode
+    airwayWallSegmentId: str = ""
     lobesSegmentation: vtkMRMLSegmentationNode
+    lobesMapping: str = ""  # lobe table: "RUL=<segment name>;RML=;..." (empty name: None; "": not set yet)
     storePath: pathlib.Path
     # Method
     method: Annotated[str, Choice(["field", "vmtk"])] = "field"
@@ -131,6 +158,20 @@ class VEScanParameterNode:
 def isPathSet(path) -> bool:
     # An empty pathlib.Path is "."
     return str(path) not in ("", ".")
+
+
+def ensureVescanField() -> bool:
+    """Install vescan-field (Resources/requirements.txt) on first use; numpy stays at Slicer's version,
+    otherwise pip could upgrade it and break Slicer. False if the user declines."""
+    if importlib.util.find_spec("vescan_field"):
+        return True
+    if not slicer.util.confirmOkCancelDisplay(_("VeScan needs the Python package vescan-field, install it now?"),
+                                              windowTitle="VeScan"):
+        return False
+    with slicer.util.displayPythonShell(), slicer.util.WaitCursor():
+        slicer.util.pip_install(["-r", str(REQUIREMENTS_PATH), f"numpy=={np.__version__}"])
+    importlib.invalidate_caches()
+    return True
 
 
 #
@@ -158,6 +199,7 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose)
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
+        self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndImportEvent, self.onSceneEndImport)
 
         # Path edits and generation sliders are synced by hand: the automatic binding shows an
         # empty path as "." and forces a fixed slider range. Paths use the edit text because
@@ -175,18 +217,23 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         for name in PATH_INPUTS:
             getattr(self.ui, f"{name}PathEdit").comboBox().editTextChanged.connect(
                 lambda path, n=name: self._onInputPathChanged(n, path))
-        self.ui.lobesPathsEdit.textChanged.connect(lambda text: self._setParameter("lobesPaths", text))
+        self.ui.lobesPathsEdit.textChanged.connect(self._onLobesPathsChanged)
         self.ui.lobesPathsEdit.editingFinished.connect(self.onLoadLobes)
         self.ui.lobesBrowseButton.clicked.connect(self.onBrowseLobes)
-        for name in STRUCTURES + ["airwayWall"]:
-            getattr(self.ui, f"{name}SegmentSelector").connect(
-                "currentNodeChanged(vtkMRMLNode*)", self._updateRunButtonState)
+        for name in SEGMENT_INPUTS:
+            selector = getattr(self.ui, f"{name}SegmentSelector")
+            selector.connect("currentNodeChanged(vtkMRMLNode*)", lambda _node, n=name: self._onSegmentChanged(n))
+            selector.connect("currentSegmentChanged(QString)", lambda _id, n=name: self._onSegmentChanged(n))
+        self.ui.ctNodeSelector.connect("currentNodeChanged(vtkMRMLNode*)", lambda node: self._showSceneNode("ct", node))
+        self.ui.lobesNodeSelector.connect("currentNodeChanged(vtkMRMLNode*)",
+                                          lambda node: self._showSceneNode("lobes", node))
         self.ui.lobesTable.setRowCount(len(LOBES))
         for row, lobe in enumerate(LOBES):
             item = qt.QTableWidgetItem(lobe)
             item.setFlags(qt.Qt.ItemIsEnabled)
             self.ui.lobesTable.setItem(row, 0, item)
         self.ui.lobesTable.hide()
+        self.ui.lobesStatusLabel.hide()
         self.ui.loadLobesButton.clicked.connect(self.onLoadLobes)
 
         # Method
@@ -205,17 +252,19 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ui.applyCutButton.clicked.connect(self.onApplyCut)
 
         # Results
-        for kind, check in [("surfaces", self.ui.showSurfacesCheck), ("centerlines", self.ui.showCenterlinesCheck),
-                            ("lobes", self.ui.showLobesCheck), ("cutPoints", self.ui.showCutPointsCheck)]:
-            check.toggled.connect(lambda visible, k=kind: self.onDisplayChanged(k, visible))
+        for kind, structure, check in self._showChecks():
+            check.toggled.connect(lambda visible, k=kind, s=structure: self.onDisplayChanged(k, visible, s))
         self.ui.colorByCombo.currentIndexChanged.connect(self.onColorByChanged)
+        self.ui.lobesColorByCombo.currentIndexChanged.connect(self.onLobesColorByChanged)
+        self.ui.showLegendsCheck.toggled.connect(self.onShowLegendsToggled)
         self.ui.crossingsTableView.clicked.connect(lambda index: self.onCrossingSelected(index.row()))
         self.ui.exportStatsButton.clicked.connect(self.onExportStatistics)
 
-        self.initializeParameterNode()
+        self.restoreFromScene()  # also when the module is opened on a scene loaded before
 
     def cleanup(self) -> None:
         self.removeObservers()
+        self.logic.removeTemporaryOutput()
 
     def enter(self) -> None:
         self.initializeParameterNode()
@@ -228,10 +277,32 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onSceneStartClose(self, caller, event) -> None:
         self.setParameterNode(None)
+        self.logic.removeTemporaryOutput()
 
     def onSceneEndClose(self, caller, event) -> None:
-        if self.parent.isEntered:
-            self.initializeParameterNode()
+        self.restoreFromScene()  # empty scene: hides the lobe table, Cut tree and Results
+
+    def onSceneEndImport(self, caller, event) -> None:
+        self.restoreFromScene()
+
+    def restoreFromScene(self) -> None:
+        """Lobe table, Cut tree and Results from the nodes the module created (saved with the scene)."""
+        # the logic first: the paths set in the GUI then find their nodes instead of loading the files again
+        outputDir = self.logic.getParameterNode().outputDir
+        self.logic.restoreFromScene(pathlib.Path(outputDir) if isPathSet(outputDir) else None)
+        self.initializeParameterNode()
+        p = self._parameterNode
+        lobesLoaded = self.logic.lobesNode or (p.lobesSource == "scene" and p.lobesSegmentation)
+        if lobesLoaded and importlib.util.find_spec("vescan_field"):
+            self.onLoadLobes()  # file lobes: the node in the scene, not loaded again
+        else:
+            self.ui.lobesTable.hide()
+            self.ui.lobesStatusLabel.hide()
+        self._onCenterlinesDone(keepGenerations=True)
+        if self.logic.crossingsTableNode or self.logic.hasResults():
+            self._showResults()
+        else:
+            self.ui.resultsCollapsibleButton.enabled = False
 
     def initializeParameterNode(self) -> None:
         self.setParameterNode(self.logic.getParameterNode())
@@ -249,6 +320,14 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
                 path = getattr(self._parameterNode, paramName)
                 pathEdit.currentPath = str(path) if isPathSet(path) else ""
             self.ui.lobesPathsEdit.text = self._parameterNode.lobesPaths
+            for name in SEGMENT_INPUTS:
+                # read both first: setting the node selects its first segment and updates the parameters
+                segmentation = getattr(self._parameterNode, f"{name}Segmentation")
+                segmentId = getattr(self._parameterNode, f"{name}SegmentId")
+                selector = getattr(self.ui, f"{name}SegmentSelector")
+                selector.setCurrentNode(segmentation)
+                if segmentId:
+                    selector.setCurrentSegmentID(segmentId)
             for name in INPUTS:
                 isFile = getattr(self._parameterNode, f"{name}Source") == "file"
                 getattr(self.ui, f"{name}FileRadio" if isFile else f"{name}SceneRadio").checked = True
@@ -274,6 +353,8 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             policy = qt.QSizePolicy.Preferred if i == stack.currentIndex else qt.QSizePolicy.Ignored
             stack.widget(i).setSizePolicy(qt.QSizePolicy.Preferred, policy)
         self._setParameter(f"{name}Source", "file" if isFile else "scene")
+        if name in SEGMENT_INPUTS:
+            self._showSceneSegments()
 
     def _isInputSet(self, name) -> bool:
         p = self._parameterNode
@@ -283,7 +364,30 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return isPathSet(getattr(p, f"{name}Path"))
         if name == "ct":
             return p.ctVolume is not None
-        return getattr(self.ui, f"{name}SegmentSelector").currentNode() is not None
+        return getattr(p, f"{name}Segmentation") is not None and bool(getattr(p, f"{name}SegmentId"))
+
+    def _onSegmentChanged(self, name) -> None:
+        selector = getattr(self.ui, f"{name}SegmentSelector")
+        segmentation = selector.currentNode()
+        if segmentation and not selector.currentSegmentID() and segmentation.GetSegmentation().GetNumberOfSegments():
+            selector.setCurrentSegmentID(segmentation.GetSegmentation().GetNthSegmentID(0))  # calls this again
+            return
+        self._setParameter(f"{name}Segmentation", selector.currentNode())
+        self._setParameter(f"{name}SegmentId", selector.currentSegmentID() or "")
+        self._showSceneSegments()
+
+    def _showSceneSegments(self) -> None:
+        p = self._parameterNode
+        if p:
+            self.logic.showSceneSegments([(getattr(p, f"{name}Segmentation"), getattr(p, f"{name}SegmentId"))
+                                          for name in SEGMENT_INPUTS if getattr(p, f"{name}Source") == "scene"])
+
+    def _showSceneNode(self, name, node) -> None:
+        """CT (slice views) or lobe segmentation (3D) chosen in the scene."""
+        p = self._parameterNode
+        if p and node and getattr(p, f"{name}Source") == "scene":
+            with slicer.util.WaitCursor():
+                self.logic.showInput(name, node)
 
     def _onInputPathChanged(self, name, path) -> None:
         """Load and show a file input as soon as its path points to an existing file."""
@@ -299,44 +403,88 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         return [p.strip() for p in self._parameterNode.lobesPaths.split(";") if p.strip()]
 
     def onBrowseLobes(self) -> None:
-        paths = qt.QFileDialog.getOpenFileNames(slicer.util.mainWindow(), _("Lobes: one label map or one file per lobe"),
+        paths = qt.QFileDialog.getOpenFileNames(slicer.util.mainWindow(), _("Lobes: select all 5 lobe files, or one label map"),
                                                 "", SEGMENTATION_FILES)
         if paths:
             self.ui.lobesPathsEdit.text = "; ".join(paths)
             self.onLoadLobes()
 
     def _structureInput(self, name):
-        selector = getattr(self.ui, f"{name}SegmentSelector")
-        return self.logic.loadStructure(name, getattr(self._parameterNode, f"{name}Source"),
-                                        selector.currentNode(), selector.currentSegmentID(),
-                                        getattr(self._parameterNode, f"{name}Path"))
+        p = self._parameterNode
+        return self.logic.loadStructure(name, getattr(p, f"{name}Source"), getattr(p, f"{name}Segmentation"),
+                                        getattr(p, f"{name}SegmentId"), getattr(p, f"{name}Path"))
+
+    def _onLobesPathsChanged(self, text) -> None:
+        if self._parameterNode and text != self._parameterNode.lobesPaths:
+            self._parameterNode.lobesMapping = ""  # new files: the table is mapped again automatically
+            self._parameterNode.lobesPaths = text
+
+    def _savedLobesMapping(self, names) -> dict:
+        """lobe -> segment name ("" = None) saved in the parameter node; {} if not saved or a segment is gone."""
+        mapping = dict(item.split("=", 1) for item in self._parameterNode.lobesMapping.split(";") if "=" in item)
+        valid = set(mapping) == set(LOBES) and all(not name or name in names for name in mapping.values())
+        return mapping if valid else {}
 
     def onLoadLobes(self) -> None:
-        """Load the lobes and fill the table; a segment named as the lobe or as its TotalSegmentator
-        mask (e.g. lung_upper_lobe_right) is mapped automatically."""
+        """Load the lobes and fill the table: as saved in the parameter node, else automatically: a segment
+        named as the lobe or as its TotalSegmentator mask (e.g. lung_upper_lobe_right), 5 segments with other
+        names in order, any other lobe None."""
         p = self._parameterNode
-        if p.lobesSource == "file" and not self._lobesPaths():
+        if (p.lobesSource == "file" and not self._lobesPaths()) or not ensureVescanField():
             return
         with slicer.util.tryWithErrorDisplay(_("Failed to load lobes."), waitCursor=True):
             from vescan_field.lobes import LOBE_SEGMENTATION_NAME
             names = self.logic.loadLobes(p.lobesSource, p.lobesSegmentation, self._lobesPaths())
+            known = {lobe: [n for n in (lobe, LOBE_SEGMENTATION_NAME[lobe]) if n in names] for lobe in LOBES}
+            byOrder = len(names) == len(LOBES) and not any(known.values())
+            saved = self._savedLobesMapping(names)
             for row, lobe in enumerate(LOBES):
                 combo = qt.QComboBox()
-                combo.addItems(names)
-                matches = [n for n in (lobe, LOBE_SEGMENTATION_NAME[lobe]) if n in names]
-                combo.currentIndex = names.index(matches[0]) if matches else min(row, len(names) - 1)
-                combo.currentIndexChanged.connect(lambda _index: self.logic.colorLobes(self._lobeSegments()))
+                combo.addItems([_("None")] + names)
+                if saved:
+                    combo.currentIndex = names.index(saved[lobe]) + 1 if saved[lobe] else 0
+                elif known[lobe]:
+                    combo.currentIndex = names.index(known[lobe][0]) + 1
+                else:
+                    combo.currentIndex = row + 1 if byOrder else 0
+                combo.currentIndexChanged.connect(self.onLobeMappingChanged)
                 self.ui.lobesTable.setCellWidget(row, 1, combo)
             self.ui.lobesTable.show()
-            self.logic.colorLobes(self._lobeSegments())
+            self.onLobeMappingChanged()
+
+    def onLobeMappingChanged(self) -> None:
+        combos = [self.ui.lobesTable.cellWidget(row, 1) for row in range(len(LOBES))]
+        self._setParameter("lobesMapping", ";".join(f"{lobe}={combo.currentText if combo.currentIndex else ''}"
+                                                    for lobe, combo in zip(LOBES, combos)))
+        self.logic.colorLobes(self._lobeSegments())
+        missing = self._missingLobes()
+        if len(missing) == len(LOBES):
+            text, color = _("No lobe set: load the lobe files (all 5 together), or pick their labels."), "#c0392b"
+        elif missing:
+            text, color = _("{n}/5 lobes, without {lobes}: VeScan runs on the set lobes only. "
+                            "For all lobes load the 5 files together, or pick their labels.").format(
+                                n=len(LOBES) - len(missing), lobes=", ".join(missing)), "#d35400"
+        else:
+            text, color = _("All 5 lobes set."), ""
+        self.ui.lobesStatusLabel.text = text
+        self.ui.lobesStatusLabel.styleSheet = f"color: {color}" if color else ""
+        self.ui.lobesStatusLabel.show()
+        self._updateRunButtonState()
 
     def _lobeSegments(self) -> dict:
-        """lobe -> segment ID in the lobe segmentation, from the lobe table."""
+        """lobe -> segment ID in the lobe segmentation (None: not set), from the lobe table."""
         if self.ui.lobesTable.isHidden():
             self.onLoadLobes()
         segmentation = self.logic.lobesNode.GetSegmentation()
-        return {lobe: segmentation.GetSegmentIdBySegmentName(self.ui.lobesTable.cellWidget(row, 1).currentText)
-                for row, lobe in enumerate(LOBES)}
+        combos = [self.ui.lobesTable.cellWidget(row, 1) for row in range(len(LOBES))]
+        return {lobe: segmentation.GetSegmentIdBySegmentName(combo.currentText) if combo.currentIndex else None
+                for lobe, combo in zip(LOBES, combos)}
+
+    def _missingLobes(self) -> list:
+        """Lobes without a segment in the lobe table (none before the lobes are loaded)."""
+        if self.ui.lobesTable.isHidden():
+            return []
+        return [LOBES[row] for row in range(len(LOBES)) if not self.ui.lobesTable.cellWidget(row, 1).currentIndex]
 
     #
     # Method / Output
@@ -358,23 +506,27 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             missing.append(_("field store"))
         if (p.stagePreprocess or p.stageAnatomy) and not self._isInputSet("lobes"):
             missing.append(_("lobes"))
-        if not isPathSet(p.outputDir):
-            missing.append(_("output folder"))
+        elif (p.stagePreprocess or p.stageAnatomy) and len(self._missingLobes()) == len(LOBES):
+            missing.append(_("a lobe"))
+        if not isPathSet(p.outputDir) and not (p.stagePreprocess and p.stageCenterlines):
+            missing.append(_("output folder (with stages off, the results of a previous run are read from it)"))
         self.ui.runButton.enabled = not missing and not self.ui.cancelButton.enabled
-        self.ui.runButton.toolTip = _("Missing: ") + ", ".join(missing) if missing else _("Run VE-SCAN")
+        self.ui.runButton.toolTip = _("Missing: ") + ", ".join(missing) if missing else _("Run VeScan")
 
     def onRun(self) -> None:
+        if not ensureVescanField():
+            return
         p = self._parameterNode
         self.ui.logText.clear()
         self.ui.cancelButton.enabled = True
         self.ui.runButton.enabled = False
         try:
-            with slicer.util.tryWithErrorDisplay(_("VE-SCAN failed."), waitCursor=True):
+            with slicer.util.tryWithErrorDisplay(_("VeScan failed."), waitCursor=True):
                 ctNode = self.logic.loadCT(p.ctSource, p.ctVolume, p.ctPath) if self._isInputSet("ct") else None
                 structures = {name: [self._structureInput(name)] for name in self._runStructures()}
                 if "airways" in structures and self._isInputSet("airwayWall"):
                     structures["airways"].append(self._structureInput("airwayWall"))
-                lobeSegments = self._lobeSegments() if p.stagePreprocess else {}
+                lobeSegments = self._lobeSegments() if p.stagePreprocess or p.stageAnatomy else {}
                 finished = self.logic.run(p, ctNode, structures, lobeSegments, self._onProgress,
                                           self.ui.logText.appendPlainText)
                 if finished:
@@ -399,7 +551,9 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     # Cut tree
     #
 
-    def _onCenterlinesDone(self) -> None:
+    def _onCenterlinesDone(self, keepGenerations=False) -> None:
+        """Cut tree for the structures with a centerline: sliders on its generation range (at the maximum
+        after a run, at the saved value when a scene is loaded); Apply cut needs the run's files."""
         withTree = [s for s in STRUCTURES if self.logic.hasCenterline(s)]
         for name in STRUCTURES:
             visible = name in withTree
@@ -407,10 +561,15 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             slider = getattr(self.ui, f"{name}GenerationsSlider")
             slider.visible = visible
             if visible:
+                saved = getattr(self._parameterNode, f"{name}Generations")
                 slider.minimum, slider.maximum = self.logic.getGenerationRange(name)
-                slider.value = slider.maximum
+                slider.value = min(max(saved, slider.minimum), slider.maximum) if keepGenerations else slider.maximum
         self.ui.clipCollapsibleButton.visible = bool(withTree)
         self.ui.clipCollapsibleButton.collapsed = False
+        canCut = any(self.logic.canCut(s) for s in withTree)
+        self.ui.applyCutButton.enabled = canCut
+        self.ui.applyCutButton.toolTip = "" if canCut else _(
+            "The files of the run are not in the output folder anymore (temporary folder, or moved): run again to cut.")
 
     def onGenerationsChanged(self, structure, value) -> None:
         self._setParameter(f"{structure}Generations", int(value))
@@ -428,30 +587,50 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onApplyCut(self) -> None:
         with slicer.util.tryWithErrorDisplay(_("Failed to cut the tree."), waitCursor=True):
             for name in STRUCTURES:
-                if self.logic.hasCenterline(name):
+                if self.logic.canCut(name):
                     self.logic.applyCut(name, getattr(self._parameterNode, f"{name}Generations"),
                                         self._parameterNode.capSurface)
-            self.onDisplayChanged("cutPoints", self.ui.showCutPointsCheck.checked)
+            for kind, structure, check in self._showChecks():
+                if kind == "cutPoints":
+                    self.onDisplayChanged(kind, check.checked, structure)
 
     #
     # Results
     #
 
+    def _showChecks(self):
+        """(kind, structure, check) of Results > Show; lobes and fissures are one model for all structures."""
+        checks = [(kind, structure, getattr(self.ui, f"show{kind[0].upper()}{kind[1:]}{structure.capitalize()}Check"))
+                  for kind in SHOW_KINDS for structure in STRUCTURES]
+        return checks + [("lobes", None, self.ui.showLobesCheck)]
+
     def _onRunFinished(self) -> None:
-        tableNode = self.logic.loadResults()
-        self.ui.crossingsTableView.setMRMLTableNode(tableNode)
+        self.logic.loadResults()
+        self._showResults()
+        for kind, structure, check in self._showChecks():
+            self.onDisplayChanged(kind, check.checked, structure)
+
+    def _showResults(self) -> None:
+        self.ui.crossingsTableView.setMRMLTableNode(self.logic.crossingsTableNode)
         self.ui.resultsCollapsibleButton.enabled = True
         self.ui.resultsCollapsibleButton.collapsed = False
-        for kind, check in [("surfaces", self.ui.showSurfacesCheck), ("centerlines", self.ui.showCenterlinesCheck),
-                            ("lobes", self.ui.showLobesCheck), ("cutPoints", self.ui.showCutPointsCheck)]:
-            self.onDisplayChanged(kind, check.checked)
+        for kind, structure, check in self._showChecks():  # a structure without results: its column disabled
+            check.enabled = structure is None or self.logic.hasResults(structure)
+        self.logic.updateLegends()
 
-    def onDisplayChanged(self, kind, visible) -> None:
-        self.logic.setVisibility(kind, visible)
+    def onDisplayChanged(self, kind, visible, structure=None) -> None:
+        self.logic.setVisibility(kind, visible, structure)
 
     def onColorByChanged(self, index) -> None:
         self.ui.previewCheck.checked = False  # the preview colours by Generation
         self.logic.setColorBy(*COLOR_BY[index])
+
+    def onShowLegendsToggled(self, visible) -> None:
+        self.logic.showLegends = visible
+        self.logic.updateLegends()
+
+    def onLobesColorByChanged(self, index) -> None:
+        self.logic.setLobesColorBy(*LOBES_COLOR_BY[index])
 
     def onCrossingSelected(self, row) -> None:
         tableNode = self.ui.crossingsTableView.mrmlTableNode()
@@ -486,7 +665,7 @@ class UiLogHandler(logging.Handler):
 
 
 class VEScanLogic(ScriptedLoadableModuleLogic):
-    """Inputs are loaded with Slicer, vescan_field computes and saves (VE-SCAN's output layout),
+    """Inputs are loaded with Slicer, vescan_field computes and saves (VeScan's output layout),
     and each output is shown in 3D as soon as it is written."""
 
     def __init__(self) -> None:
@@ -495,11 +674,14 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
         self._inputs = {}          # input name -> (file path(s), node loaded from them)
         self._models = {}          # (kind, structure) -> displayed node
         self.lobesNode = None
+        self.temporaryOutput = None  # output folder of a run without output folder (removed later)
+        self._sceneVisibility = {}     # segmentation node ID -> {segment ID: 3D visibility before the module}
         self.contexts = {}         # structure -> vescan StructureContext of the last run
         self.statisticsRows = []
         self.crossingsTableNode = None
         self.colorBy = COLOR_BY[0]      # (array, colour table) of the surfaces and centerlines
-        self._lobeArray = LOBE_SEGMENT_ARRAY["artery"]
+        self.lobesColorBy = LOBES_COLOR_BY[0]  # (array, values) of the lobe mesh
+        self.showLegends = True
 
     def getParameterNode(self):
         return VEScanParameterNode(super().getParameterNode())
@@ -514,6 +696,8 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
                 return old
             slicer.mrmlScene.RemoveNode(old)
         node = load()
+        node.SetAttribute(INPUT_ATTRIBUTE, name)
+        node.SetAttribute(INPUT_KEY_ATTRIBUTE, json.dumps(key))
         self._inputs[name] = (key, node)
         self.showInput(name, node)
         return node
@@ -531,6 +715,37 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
                 segmentation.GetNthSegment(i).SetColor(*color)
         node.GetDisplayNode().SetOpacity3D(0.3 if name == "lobes" else 1.0)
         slicer.app.layoutManager().threeDWidget(0).threeDView().resetFocalPoint()
+
+    def showSceneSegments(self, selections):
+        """Structures chosen in the scene, in 3D: selections = [(segmentation, segment ID), ...]. Of these
+        segmentations only the chosen segments are shown in 3D (still all in the slice views), colours unchanged;
+        a segmentation no longer chosen gets back its segments' 3D visibility."""
+        chosen = {}
+        for segmentation, segmentId in selections:
+            if segmentation and segmentId:
+                chosen.setdefault(segmentation.GetID(), set()).add(segmentId)
+        for nodeId in list(self._sceneVisibility):
+            node = slicer.mrmlScene.GetNodeByID(nodeId)
+            if nodeId not in chosen and node and node.GetDisplayNode():
+                for segmentId, visible in self._sceneVisibility[nodeId].items():
+                    node.GetDisplayNode().SetSegmentVisibility3D(segmentId, visible)
+            if nodeId not in chosen:
+                del self._sceneVisibility[nodeId]
+        for nodeId, segmentIds in chosen.items():
+            node = slicer.mrmlScene.GetNodeByID(nodeId)
+            if not node.GetDisplayNode():
+                node.CreateDefaultDisplayNodes()
+            display = node.GetDisplayNode()
+            allIds = [node.GetSegmentation().GetNthSegmentID(i) for i in range(node.GetSegmentation().GetNumberOfSegments())]
+            if nodeId not in self._sceneVisibility:
+                self._sceneVisibility[nodeId] = {i: display.GetSegmentVisibility3D(i) for i in allIds}
+                with slicer.util.WaitCursor():
+                    node.CreateClosedSurfaceRepresentation()  # all its segments, once
+                slicer.app.layoutManager().threeDWidget(0).threeDView().resetFocalPoint()
+            display.SetVisibility(True)
+            display.SetVisibility3D(True)
+            for i in allIds:
+                display.SetSegmentVisibility3D(i, i in segmentIds)
 
     def loadCT(self, source, node=None, path=None):
         if source == "scene":
@@ -561,11 +776,11 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
         return [segments.GetNthSegment(i).GetName() for i in range(segments.GetNumberOfSegments())]
 
     def colorLobes(self, lobeSegments):
-        """Lobe segments in the colours of VE-SCAN's LobeLabel table (value = position in LOBE_ORDER + 1)."""
+        """Lobe segments in the colours of VeScan's LobeLabel table (value = position in LOBE_ORDER + 1)."""
         from vescan_field.lobes import LOBE_ORDER
         table, rgba = self.colorTable("ColorTableLobeLabel_EN"), [0.0] * 4
         for lobe, segmentId in lobeSegments.items():
-            segment = self.lobesNode.GetSegmentation().GetSegment(segmentId)
+            segment = segmentId and self.lobesNode.GetSegmentation().GetSegment(segmentId)
             if segment and table.GetColor(LOBE_ORDER.index(lobe) + 1, rgba):
                 segment.SetColor(*rgba[:3])
 
@@ -602,15 +817,16 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
     def referenceGrid(segmentation, segmentId):
         """Without a CT: a label map on the segmentation's full grid (the grid of the mask file, which is
         what vescan uses as CT geometry)."""
-        labelmap = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode", "VE-SCAN reference grid")
+        labelmap = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLabelMapVolumeNode", "VeScan reference grid")
         segmentIds = vtk.vtkStringArray()
         segmentIds.InsertNextValue(segmentId)
         slicer.modules.segmentations.logic().ExportSegmentsToLabelmapNode(
             segmentation, segmentIds, labelmap, None, slicer.vtkSegmentation.EXTENT_REFERENCE_GEOMETRY)
         return labelmap
 
-    def buildConfig(self, params, outputDir, airwayWall=False):
-        """The bundled JSON with the keys set by the UI, saved in the output folder and validated by vescan."""
+    def buildConfig(self, params, outputDir, airwayWall=False, lobes=None):
+        """The bundled JSON with the keys set by the UI, saved in the output folder and validated by vescan.
+        lobes: the active lobes (pipeline.lobes.enabled; None: as in the JSON)."""
         from vescan_field import config, io
         data = json.loads(CONFIG_PATH.read_text())
         batch = data["batch"]
@@ -624,6 +840,8 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
         data["pipeline"]["stages"] = dict(surfaces=params.stagePreprocess, centerlines=params.stageCenterlines,
                                           anatomy=params.stageAnatomy, surface_labels=True, clip=False)
         data["pipeline"]["clip"]["cap"] = params.capSurface
+        if lobes is not None:
+            data["pipeline"]["lobes"]["enabled"] = lobes
         outputDir.mkdir(parents=True, exist_ok=True)
         io.write_json(outputDir / "vescan_config.json", data)
         return config.build(data, base_dir=outputDir)
@@ -633,7 +851,8 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
     def run(self, params, ctNode, structures, lobeSegments, progressCallback, logCallback=None) -> bool:
         """ctNode: reference grid, optional (None: the grid of the first structure's mask);
         structures: name -> [(segmentation, segment ID), ...] (airways: + airway wall);
-        lobeSegments: lobe -> segment ID in self.lobesNode. Returns False if cancelled."""
+        lobeSegments: lobe -> segment ID in self.lobesNode (None: lobe excluded, pipeline.lobes.enabled).
+        Returns False if cancelled."""
         from vescan_field import io, log
         from vescan_field.lobes import lobe_mask_names
         from vescan_field.orchestrator import STAGES
@@ -641,12 +860,19 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
 
         self._cancelRequested = False
         self.contexts = {}
-        outputDir = pathlib.Path(params.outputDir)
-        cfg = self.buildConfig(params, outputDir, airwayWall=len(structures.get("airways", [])) > 1)
+        self.removeTemporaryOutput()
+        if isPathSet(params.outputDir):
+            outputDir = pathlib.Path(params.outputDir)
+        else:
+            outputDir = self.temporaryOutput = pathlib.Path(slicer.app.temporaryPath) / "VEScan" / time.strftime("%Y%m%d-%H%M%S")
+            if logCallback:
+                logCallback(_("No output folder: working in {path} (removed on scene close or with the next run; "
+                              "save the scene to keep the results).").format(path=outputDir))
+        cfg = self.buildConfig(params, outputDir, airwayWall=len(structures.get("airways", [])) > 1,
+                               lobes=[lobe for lobe, segmentId in lobeSegments.items() if segmentId] if lobeSegments else None)
         stages = [name for name in STAGES if getattr(cfg.pipeline.stages, name)]
         enabled = cfg.enabled_structures()
-        self._lobeArray = LOBE_SEGMENT_ARRAY[next(iter(enabled), "artery")]
-        # the VE-SCAN models replace the input segmentations in 3D (still shown in the slice views)
+        # the VeScan models replace the input segmentations in 3D (still shown in the slice views)
         for segmentation in {seg for inputs in structures.values() for seg, _ in inputs} | {self.lobesNode} - {None}:
             segmentation.GetDisplayNode().SetVisibility3D(False)
         steps = int(cfg.pipeline.stages.surfaces) + len(enabled) * (1 + len(stages))
@@ -704,6 +930,12 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
                 slicer.mrmlScene.RemoveNode(reference)
             if handler:
                 vescanLogger.removeHandler(handler)
+
+    def removeTemporaryOutput(self):
+        """Remove the temporary output folder of a run without output folder."""
+        if self.temporaryOutput:
+            shutil.rmtree(self.temporaryOutput, ignore_errors=True)
+            self.temporaryOutput = None
 
     def _runLobes(self, cfg, lobes, lobeSegments, referenceNode, ctGeom, surfaces):
         """As vescan's stages.surfaces.run_patient, with the lobe masks from the lobe segmentation:
@@ -777,7 +1009,8 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
             node.GetStorageNode().ReadData(node)
         else:
             node = self._models[(kind, structure)] = slicer.util.loadModel(str(path))
-            node.SetName(f"VE-SCAN {structure} {kind}" if structure else f"VE-SCAN {kind}")
+            node.SetAttribute(MODEL_ATTRIBUTE, f"{kind}/{structure}")
+            node.SetName(f"VeScan {structure} {kind}" if structure else f"VeScan {kind}")
             color, opacity = MODEL_STYLE[kind]
             display = node.GetDisplayNode()
             display.SetColor(STRUCTURE_COLOR.get(structure, color) if color is None else color)
@@ -787,19 +1020,35 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
         if kind in ("surface", "centerline"):
             self._colorModel(node, *self.colorBy)
         elif kind == "lobes":
-            self._colorModel(node, self._lobeArray, LOBES_TABLE)
+            self._colorModel(node, self.lobesColorBy[0], LOBES_TABLE, self.lobesColorBy[1])
         elif kind == "fissures":
             self._colorModel(node, "Fissure", LOBES_TABLE)
+        self.updateLegends()
         slicer.app.processEvents()
         return node
 
-    def colorTable(self, name):
-        """VE-SCAN colour table node, loaded once from Resources/ColorTables."""
+    def colorTable(self, name, values=None):
+        """VeScan colour table node, loaded once from Resources/ColorTables; with values, a copy with
+        only those entries (same colours), so that its legend lists only them."""
         node = slicer.mrmlScene.GetFirstNode(name, "vtkMRMLColorTableNode")
-        return node or slicer.util.loadColorTable(str(COLOR_TABLES_DIR / f"{name}.csv"))
+        node = node or slicer.util.loadColorTable(str(COLOR_TABLES_DIR / f"{name}.csv"))
+        if values is None:
+            return node
+        subsetName = f"{name} {values[-1]}"
+        subset = slicer.mrmlScene.GetFirstNode(subsetName, "vtkMRMLColorTableNode")
+        if not subset:
+            subset = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLColorTableNode", subsetName)
+            subset.SetTypeToUser()
+            subset.SetNumberOfColors(node.GetNumberOfColors())
+            subset.GetLookupTable().SetRange(node.GetLookupTable().GetRange())
+            rgba = [0.0] * 4
+            for value in values:
+                node.GetColor(value, rgba)
+                subset.SetColor(value, node.GetColorName(value), *rgba)
+        return subset
 
-    def _colorModel(self, node, arrayName, tableName):
-        """Colour a model by a point or cell array with a VE-SCAN table (None: Rainbow on the data
+    def _colorModel(self, node, arrayName, tableName, values=None):
+        """Colour a model by a point or cell array with a VeScan table (None: Rainbow on the data
         range); a model without the array keeps its plain colour."""
         polyData = node.GetPolyData()
         if polyData.GetPointData().GetArray(arrayName) is not None:
@@ -812,7 +1061,7 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
         display = node.GetDisplayNode()
         display.SetActiveScalar(arrayName, association)
         if tableName:
-            display.SetAndObserveColorNodeID(self.colorTable(tableName).GetID())
+            display.SetAndObserveColorNodeID(self.colorTable(tableName, values).GetID())
             display.SetScalarRangeFlag(slicer.vtkMRMLDisplayNode.UseColorNodeScalarRange)
         else:
             display.SetAndObserveColorNodeID("vtkMRMLColorTableNodeRainbow")
@@ -824,20 +1073,25 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
         if old and slicer.mrmlScene.IsNodePresent(old):
             slicer.mrmlScene.RemoveNode(old)
         node = self._models[(kind, structure)] = slicer.util.loadMarkups(str(path))
-        node.SetName(f"VE-SCAN {structure} {kind}")
+        node.SetAttribute(MODEL_ATTRIBUTE, f"{kind}/{structure}")
+        node.SetName(f"VeScan {structure} {kind}")
         node.GetDisplayNode().SetPointLabelsVisibility(False)
         self._addToFolder(node)
 
     def _addToFolder(self, node):
         sh = slicer.mrmlScene.GetSubjectHierarchyNode()
-        folder = sh.GetItemChildWithName(sh.GetSceneItemID(), "VE-SCAN") or sh.CreateFolderItem(sh.GetSceneItemID(), "VE-SCAN")
+        folder = sh.GetItemChildWithName(sh.GetSceneItemID(), "VeScan") or sh.CreateFolderItem(sh.GetSceneItemID(), "VeScan")
         sh.SetItemParent(sh.GetItemByDataNode(node), folder)
 
     # Cut tree
 
     def hasCenterline(self, structure) -> bool:
         node = self._models.get(("centerline", structure))
-        return bool(node) and slicer.mrmlScene.IsNodePresent(node) and structure in self.contexts
+        return bool(node) and slicer.mrmlScene.IsNodePresent(node)
+
+    def canCut(self, structure) -> bool:
+        """Apply cut reads the run's files (vescan's clip stage)."""
+        return self.hasCenterline(structure) and structure in self.contexts
 
     def getGenerationRange(self, structure):
         generation = slicer.util.arrayFromModelCellData(self._models[("centerline", structure)], "Generation")
@@ -856,6 +1110,7 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
         display.SetScalarVisibility(True)
         display.SetThresholdRange(-1, generations)
         display.SetThresholdEnabled(True)
+        self.updateLegends()
 
     def applyCut(self, structure, generations, cap=True):
         from vescan_field.config import ClipConfig
@@ -867,15 +1122,49 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
 
     # Results
 
-    def loadResults(self):
-        """Crossing vessels of every structure (vescan's statistics.csv) in one table node."""
+    def _readStatistics(self):
+        """All the rows of vescan's statistics.csv of every structure (for the export)."""
         self.statisticsRows = []
         for ctx in self.contexts.values():
             if ctx.paths.statistics_csv.exists():
                 with open(ctx.paths.statistics_csv, newline="") as f:
                     self.statisticsRows += [row for row in csv.DictReader(f) if row.get("crossing")]
+
+    def hasResults(self, structure=None) -> bool:
+        """Any model of the module in the scene (of one structure, or of any)."""
+        return any(slicer.mrmlScene.IsNodePresent(node) for (_kind, s), node in self._models.items()
+                   if structure in (None, s))
+
+    def restoreFromScene(self, outputDir):
+        """Find the module's nodes in a loaded scene (by their attributes) and, if the run's files are still in
+        outputDir, what Apply cut and the export need (vescan's clip stage reads only the context's paths)."""
+        self._inputs, self._models, self.contexts, self._sceneVisibility = {}, {}, {}, {}
+        self.lobesNode = self.crossingsTableNode = None
+        for i in range(slicer.mrmlScene.GetNumberOfNodes()):
+            node = slicer.mrmlScene.GetNthNode(i)
+            if node.GetAttribute(INPUT_ATTRIBUTE):
+                key = json.loads(node.GetAttribute(INPUT_KEY_ATTRIBUTE))
+                self._inputs[node.GetAttribute(INPUT_ATTRIBUTE)] = (tuple(key) if isinstance(key, list) else key, node)
+            elif node.GetAttribute(MODEL_ATTRIBUTE):
+                kind, structure = node.GetAttribute(MODEL_ATTRIBUTE).split("/", 1)
+                self._models[(kind, structure)] = node
+            elif node.GetAttribute(TABLE_ATTRIBUTE) == "crossings":
+                self.crossingsTableNode = node
+        self.lobesNode = self._inputs.get("lobes", (None, None))[1]
+        if outputDir and importlib.util.find_spec("vescan_field"):
+            from vescan_field.paths import PipelinePaths, final_export_dir
+            for structure in STRUCTURES:
+                paths = PipelinePaths(final_export_dir(outputDir, structure))
+                if self.hasCenterline(structure) and paths.branch_tree.exists():
+                    self.contexts[structure] = types.SimpleNamespace(structure=structure, paths=paths, timings={})
+        self._readStatistics()
+
+    def loadResults(self):
+        """Crossing vessels of every structure (vescan's statistics.csv) in one table node."""
+        self._readStatistics()
         if not self.crossingsTableNode or not slicer.mrmlScene.IsNodePresent(self.crossingsTableNode):
-            self.crossingsTableNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLTableNode", "VE-SCAN crossings")
+            self.crossingsTableNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLTableNode", "VeScan crossings")
+            self.crossingsTableNode.SetAttribute(TABLE_ATTRIBUTE, "crossings")
             self.crossingsTableNode.SetUseColumnTitleAsColumnHeader(True)
             self.crossingsTableNode.SetLocked(True)
             for name in CROSSING_COLUMNS:
@@ -891,10 +1180,12 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
         table.Modified()
         return table
 
-    def setVisibility(self, kind, visible):
-        for (k, _structure), node in self._models.items():
-            if k in VISIBILITY_KINDS[kind] and slicer.mrmlScene.IsNodePresent(node):
+    def setVisibility(self, kind, visible, structure=None):
+        """Show or hide the models of a kind, of one structure (None: all)."""
+        for (k, s), node in self._models.items():
+            if k in VISIBILITY_KINDS[kind] and structure in (None, s) and slicer.mrmlScene.IsNodePresent(node):
                 node.SetDisplayVisibility(visible)
+        self.updateLegends()
 
     def setColorBy(self, arrayName, tableName):
         """Colour the surfaces and centerlines (now and the ones shown later) by this array."""
@@ -902,6 +1193,41 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
         for (kind, _structure), node in self._models.items():
             if kind in ("surface", "centerline") and slicer.mrmlScene.IsNodePresent(node):
                 self._colorModel(node, arrayName, tableName)
+        self.updateLegends()
+
+    def setLobesColorBy(self, arrayName, values):
+        """Colour the lobe mesh (now and when shown later) by one of its labellings."""
+        self.lobesColorBy = (arrayName, values)
+        node = self._models.get(("lobes", ""))
+        if node and slicer.mrmlScene.IsNodePresent(node):
+            self._colorModel(node, arrayName, LOBES_TABLE, values)
+        self.updateLegends()
+
+    def updateLegends(self):
+        """One colour legend per group in the 3D view, on the first shown model coloured by an array:
+        vessels (Color by) on the right, lobes (Lobes color by) on the left."""
+        colorsLogic = slicer.modules.colors.logic()
+        for kinds, x in ((("centerline", "surface"), 0.9), (("lobes",), 0.02)):
+            nodes = sorted(((kinds.index(k), node) for (k, _structure), node in self._models.items()
+                            if k in kinds and slicer.mrmlScene.IsNodePresent(node)), key=lambda kn: kn[0])
+            shown = [node for _i, node in nodes if self.showLegends and node.GetDisplayVisibility()
+                     and node.GetDisplayNode().GetScalarVisibility()]
+            for _i, node in nodes:
+                legend = colorsLogic.GetColorLegendDisplayNode(node)
+                if legend and (not shown or node is not shown[0]):
+                    legend.SetVisibility(False)
+            if shown:
+                legend = colorsLogic.GetColorLegendDisplayNode(shown[0]) or colorsLogic.AddDefaultColorLegendDisplayNode(shown[0])
+                display = shown[0].GetDisplayNode()
+                legend.SetTitleText(display.GetActiveScalarName())
+                # VeScan tables: one entry per named class; Rainbow (Generation): continuous bar
+                names = display.GetScalarRangeFlag() == display.UseColorNodeScalarRange
+                legend.SetUseColorNamesForLabels(names)
+                legend.SetLabelFormat(legend.GetDefaultTextLabelFormat() if names else legend.GetDefaultNumericLabelFormat())
+                legend.SetPosition(x, 0.5)
+                legend.SetSize(0.25 if names else 0.08, 0.6)  # the text is scaled to the legend width
+                legend.SetVisibility2D(False)
+                legend.SetVisibility(True)
 
     def focusCrossing(self, structure, crossingId):
         """Centre the slice views and the 3D camera on a crossing vessel."""

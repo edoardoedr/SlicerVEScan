@@ -71,7 +71,7 @@ The Scene/File switch is the same for every input: each radio pair is a `QButton
 
 ## 2. Parameter node (`@parameterNodeWrapper`)
 
-Settings saved with the scene; later this object is what gets turned into the VE-SCAN config.
+Settings saved with the scene; later this object is what gets turned into the VeScan config.
 
 ```python
 @parameterNodeWrapper
@@ -125,7 +125,7 @@ class VEScanParameterNode:
 
 ## 4. Logic stubs (`VEScanLogic`)
 
-These are the functions to connect to VE-SCAN later.
+These are the functions to connect to VeScan later.
 
 ```python
 class VEScanLogic(ScriptedLoadableModuleLogic):
@@ -161,4 +161,4 @@ For the mockup: `run()` calls `progressCallback` a few times with `slicer.app.pr
 3. Method + Output, `_updateRunButtonState`.
 4. Fake `run()` with progress, then Cut tree appearing with the fake range.
 5. Results with an empty `vtkMRMLTableNode` with the right columns.
-6. Later: replace the stubs one by one with VE-SCAN calls.
+6. Later: replace the stubs one by one with VeScan calls.

@@ -6,7 +6,7 @@ project(SlicerVEScan)
 # Extension meta-information
 set(EXTENSION_HOMEPAGE "https://github.com/edoardoedr/SlicerVEScan")
 set(EXTENSION_CONTRIBUTORS "Edoardo De Rose (KIT, IBT)")
-set(EXTENSION_DESCRIPTION "Lung vessel centerline trees, anatomical branch labels and crossing vessels (VE-SCAN)")
+set(EXTENSION_DESCRIPTION "Lung vessel centerline trees, anatomical branch labels and crossing vessels (VeScan)")
 set(EXTENSION_ICONURL "https://raw.githubusercontent.com/edoardoedr/SlicerVEScan/main/SlicerVEScan.png")
 set(EXTENSION_SCREENSHOTURLS "")
 set(EXTENSION_DEPENDS "NA") # Specified as a list or "NA" if no dependencies

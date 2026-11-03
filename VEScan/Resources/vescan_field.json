@@ -1,6 +1,6 @@
 {
   "experiment_name": "SlicerVEScan",
-  "notes": "Base config of the VE-SCAN module, loaded with vescan_field.config. Every parameter is set here; the module overwrites only: batch.patients_root_dir / surfaces_root_dir / results_root_dir (output folder), batch.store, batch.structures.<s>.enabled, batch.structures.airways.classes (no airway wall input), pipeline.stages and pipeline.clip.",
+  "notes": "Base config of the VeScan module, loaded with vescan_field.config. Every parameter is set here; the module overwrites only: batch.patients_root_dir / surfaces_root_dir / results_root_dir (output folder), batch.store, batch.structures.<s>.enabled, batch.structures.airways.classes (no airway wall input), pipeline.stages and pipeline.clip.",
   "logging": {
     "level": "INFO",
     "file_name": "pipeline.log"
@@ -121,14 +121,16 @@
         "GroupId",
         "IsBifurcation",
         "Generation",
-        "CellId"
+        "CellId",
+        "Length",
+        "AverageRadius"
       ],
       "max_island_area_fraction": 0.0025,
       "max_island_passes": 5,
       "max_protected_crossing_id": 500
     },
     "clip": {
-      "max_generations": 6,
+      "max_generations": 8,
       "cap": true
     }
   }

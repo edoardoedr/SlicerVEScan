@@ -2,7 +2,7 @@
 <ui version="4.0">
  <class>VEScan</class>
  <widget class="qMRMLWidget" name="VEScan">
-  <layout class="QVBoxLayout" name="layout_45">
+  <layout class="QVBoxLayout" name="layout_54">
    <item>
     <widget class="ctkCollapsibleButton" name="inputsCollapsibleButton">
      <property name="text">
@@ -517,7 +517,7 @@
             <item>
              <widget class="QLineEdit" name="lobesPathsEdit">
               <property name="placeholderText">
-               <string>One label map, or one file per lobe</string>
+               <string>All 5 lobe files (select them together), or one label map</string>
               </property>
              </widget>
             </item>
@@ -560,6 +560,13 @@
             <string>Label</string>
            </property>
           </column>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="lobesStatusLabel">
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
          </widget>
         </item>
        </layout>
@@ -755,7 +762,7 @@
       <item row="0" column="0">
        <widget class="QLabel" name="label_39">
         <property name="text">
-         <string>Output folder:</string>
+         <string>Output folder (optional):</string>
         </property>
        </widget>
       </item>
@@ -763,6 +770,9 @@
        <widget class="ctkPathLineEdit" name="outputPathEdit">
         <property name="filters">
          <set>ctkPathLineEdit::Dirs</set>
+        </property>
+        <property name="toolTip">
+         <string>Where VeScan saves its outputs. Empty: a temporary folder, removed on scene close (save the scene to keep the results).</string>
         </property>
        </widget>
       </item>
@@ -948,36 +958,125 @@
      <property name="enabled">
       <bool>false</bool>
      </property>
-     <layout class="QFormLayout" name="formLayout_42">
+     <layout class="QFormLayout" name="formLayout_50">
       <item row="0" column="0">
-       <widget class="QLabel" name="label_43">
+       <widget class="QLabel" name="label_51">
         <property name="text">
          <string>Show:</string>
         </property>
        </widget>
       </item>
       <item row="0" column="1">
-       <layout class="QVBoxLayout" name="layout_41">
-        <item>
-         <widget class="QCheckBox" name="showSurfacesCheck">
+       <layout class="QGridLayout" name="gridLayout_41">
+        <item row="0" column="1">
+         <widget class="QLabel" name="label_42">
+          <property name="text">
+           <string>Artery</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="2">
+         <widget class="QLabel" name="label_43">
+          <property name="text">
+           <string>Veins</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="3">
+         <widget class="QLabel" name="label_44">
+          <property name="text">
+           <string>Airways</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="label_45">
           <property name="text">
            <string>Labelled surfaces</string>
           </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QCheckBox" name="showSurfacesArteryCheck">
           <property name="checked">
            <bool>true</bool>
           </property>
          </widget>
         </item>
-        <item>
-         <widget class="QCheckBox" name="showCenterlinesCheck">
+        <item row="1" column="2">
+         <widget class="QCheckBox" name="showSurfacesVeinsCheck">
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="3">
+         <widget class="QCheckBox" name="showSurfacesAirwaysCheck">
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="label_46">
           <property name="text">
            <string>Centerlines</string>
           </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QCheckBox" name="showCenterlinesArteryCheck">
           <property name="checked">
            <bool>true</bool>
           </property>
          </widget>
         </item>
+        <item row="2" column="2">
+         <widget class="QCheckBox" name="showCenterlinesVeinsCheck">
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="3">
+         <widget class="QCheckBox" name="showCenterlinesAirwaysCheck">
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="0">
+         <widget class="QLabel" name="label_47">
+          <property name="text">
+           <string>Cut points</string>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="1">
+         <widget class="QCheckBox" name="showCutPointsArteryCheck">
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="2">
+         <widget class="QCheckBox" name="showCutPointsVeinsCheck">
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="3">
+         <widget class="QCheckBox" name="showCutPointsAirwaysCheck">
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="1" column="0" colspan="2">
+       <layout class="QHBoxLayout" name="layout_49">
         <item>
          <widget class="QCheckBox" name="showLobesCheck">
           <property name="text">
@@ -989,25 +1088,38 @@
          </widget>
         </item>
         <item>
-         <widget class="QCheckBox" name="showCutPointsCheck">
+         <widget class="QCheckBox" name="showLegendsCheck">
           <property name="text">
-           <string>Cut points</string>
+           <string>Color legends</string>
           </property>
           <property name="checked">
            <bool>true</bool>
           </property>
          </widget>
         </item>
+        <item>
+         <spacer name="spacer_48">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>0</width>
+            <height>0</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
        </layout>
       </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="label_44">
+      <item row="2" column="0">
+       <widget class="QLabel" name="label_52">
         <property name="text">
          <string>Color by:</string>
         </property>
        </widget>
       </item>
-      <item row="1" column="1">
+      <item row="2" column="1">
        <widget class="QComboBox" name="colorByCombo">
         <item>
          <property name="text">
@@ -1031,14 +1143,45 @@
         </item>
        </widget>
       </item>
-      <item row="2" column="0" colspan="2">
+      <item row="3" column="0">
+       <widget class="QLabel" name="label_53">
+        <property name="text">
+         <string>Lobes color by:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QComboBox" name="lobesColorByCombo">
+        <item>
+         <property name="text">
+          <string>Artery segments</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Vein segments</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Bronchus segments</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Fissure contacts</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="4" column="0" colspan="2">
        <widget class="qMRMLTableView" name="crossingsTableView">
         <property name="minimumHeight">
          <number>150</number>
         </property>
        </widget>
       </item>
-      <item row="3" column="0" colspan="2">
+      <item row="5" column="0" colspan="2">
        <widget class="QPushButton" name="exportStatsButton">
         <property name="text">
          <string>Export statistics CSV</string>

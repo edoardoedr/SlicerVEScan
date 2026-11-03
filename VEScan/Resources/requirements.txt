@@ -1,2 +1,3 @@
-# Add Python package dependencies here, one per line.
-# Example: scikit-image>=0.20
+# Installed on first use by VEScan.ensureVescanField (Slicer's numpy is pinned there).
+# Tag archive instead of git+https: no git needed on the user's machine.
+vescan-field @ https://github.com/edoardoedr/VeScan-field/archive/refs/tags/v0.1.0.zip
