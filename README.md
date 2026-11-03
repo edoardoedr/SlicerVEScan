@@ -24,6 +24,7 @@ Given a set of vessel segmentations (arteries, veins, pulmonary airways) as inpu
 - [Outputs](#outputs)
 - [Configuration](#configuration)
 - [Develop](#develop)
+- [Credits](#credits)
 
 ## Inputs: the haversack outputs
 
@@ -119,3 +120,7 @@ Every VeScan parameter that is not in the UI comes from [`VeScan/Resources/vesca
 **New VeScan-field release**: after its tag is pushed, run `python3 tools/sync_vescan.py <tag>` (e.g. `v0.1.2`). It checks the tag's version, points `requirements.txt` to it (users with an older `vescan-field` are then asked to update), copies the colour tables and lists the differences between the release's `example.json` and `vescan_field.json`, to review by hand.
 
 Open tasks are in [NEXT.md](NEXT.md).
+
+## Credits
+
+[haversack](https://github.com/mhalle/haversack), the segmentation pipeline whose outputs VeScan reads, and the field-based approach to centerline extraction used here (centerlines computed from the network's continuous output instead of the binary mask) were developed by **Mike Halle**. VeScan uses haversack through the fork [edoardoedr/haversack](https://github.com/edoardoedr/haversack).
