@@ -52,16 +52,16 @@ LOBES_COLOR_BY = [
 ]
 CROSSING_COLUMNS = ["ID", "structure", "type", "lobes", "length mm", "angle deg"]
 
-# vescan_field config: every parameter is in this JSON, the UI overwrites only a few keys (VEScanLogic.buildConfig)
+# vescan_field config: every parameter is in this JSON, the UI overwrites only a few keys (VeScanLogic.buildConfig)
 CONFIG_PATH = pathlib.Path(__file__).parent / "Resources" / "vescan_field.json"
 REQUIREMENTS_PATH = pathlib.Path(__file__).parent / "Resources" / "requirements.txt"
 AIRWAY_WALL_CLASS = "lung_airways_wall"
 RAS_TO_LPS = np.diag([-1.0, -1.0, 1.0])
 # node attributes saved with the scene, to find the module's nodes again when a scene is loaded
-INPUT_ATTRIBUTE = "VEScan.Input"        # file input name (value of _inputs) ...
-INPUT_KEY_ATTRIBUTE = "VEScan.InputKey"  # ... and the path(s) it was loaded from (JSON)
-MODEL_ATTRIBUTE = "VEScan.Model"        # "<kind>/<structure>" (key of _models)
-TABLE_ATTRIBUTE = "VEScan.Table"        # "crossings"
+INPUT_ATTRIBUTE = "VeScan.Input"        # file input name (value of _inputs) ...
+INPUT_KEY_ATTRIBUTE = "VeScan.InputKey"  # ... and the path(s) it was loaded from (JSON)
+MODEL_ATTRIBUTE = "VeScan.Model"        # "<kind>/<structure>" (key of _models)
+TABLE_ATTRIBUTE = "VeScan.Table"        # "crossings"
 
 # stage -> (model kind, PipelinePaths attribute) shown in 3D after the stage
 STAGE_OUTPUT = {
@@ -85,11 +85,11 @@ VISIBILITY_KINDS = {"surfaces": ["surface"], "centerlines": ["centerline"], "lob
 
 
 #
-# VEScan
+# VeScan
 #
 
 
-class VEScan(ScriptedLoadableModule):
+class VeScan(ScriptedLoadableModule):
     def __init__(self, parent):
         ScriptedLoadableModule.__init__(self, parent)
         self.parent.title = _("VeScan")
@@ -106,12 +106,12 @@ Developed at the Institute of Biomedical Engineering (IBT), Karlsruhe Institute 
 
 
 #
-# VEScanParameterNode
+# VeScanParameterNode
 #
 
 
 @parameterNodeWrapper
-class VEScanParameterNode:
+class VeScanParameterNode:
     # Inputs: source ("scene" | "file") + node + path, per input
     ctSource: Annotated[str, Choice(["scene", "file"])] = "scene"
     ctVolume: vtkMRMLScalarVolumeNode
@@ -126,7 +126,7 @@ class VEScanParameterNode:
     airwaysPath: pathlib.Path
     airwayWallPath: pathlib.Path
     lobesPaths: str = ""  # one label map or one file per lobe, separated by ";"
-    # scene source of the structures: segmentation + segment ID (synced by hand, see VEScanWidget._onSegmentChanged)
+    # scene source of the structures: segmentation + segment ID (synced by hand, see VeScanWidget._onSegmentChanged)
     arterySegmentation: vtkMRMLSegmentationNode
     arterySegmentId: str = ""
     veinsSegmentation: vtkMRMLSegmentationNode
@@ -175,11 +175,11 @@ def ensureVescanField() -> bool:
 
 
 #
-# VEScanWidget
+# VeScanWidget
 #
 
 
-class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
+class VeScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def __init__(self, parent=None) -> None:
         ScriptedLoadableModuleWidget.__init__(self, parent)
         VTKObservationMixin.__init__(self)
@@ -190,12 +190,12 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def setup(self) -> None:
         ScriptedLoadableModuleWidget.setup(self)
 
-        uiWidget = slicer.util.loadUI(self.resourcePath("UI/VEScan.ui"))
+        uiWidget = slicer.util.loadUI(self.resourcePath("UI/VeScan.ui"))
         self.layout.addWidget(uiWidget)
         self.ui = slicer.util.childWidgetVariables(uiWidget)
         uiWidget.setMRMLScene(slicer.mrmlScene)
 
-        self.logic = VEScanLogic()
+        self.logic = VeScanLogic()
 
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.StartCloseEvent, self.onSceneStartClose)
         self.addObserver(slicer.mrmlScene, slicer.mrmlScene.EndCloseEvent, self.onSceneEndClose)
@@ -307,7 +307,7 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def initializeParameterNode(self) -> None:
         self.setParameterNode(self.logic.getParameterNode())
 
-    def setParameterNode(self, inputParameterNode: VEScanParameterNode | None) -> None:
+    def setParameterNode(self, inputParameterNode: VeScanParameterNode | None) -> None:
         if self._parameterNode:
             self._parameterNode.disconnectGui(self._parameterNodeGuiTag)
             self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self._updateRunButtonState)
@@ -644,7 +644,7 @@ class VEScanWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 
 #
-# VEScanLogic
+# VeScanLogic
 #
 
 
@@ -664,7 +664,7 @@ class UiLogHandler(logging.Handler):
         slicer.app.processEvents()
 
 
-class VEScanLogic(ScriptedLoadableModuleLogic):
+class VeScanLogic(ScriptedLoadableModuleLogic):
     """Inputs are loaded with Slicer, vescan_field computes and saves (VeScan's output layout),
     and each output is shown in 3D as soon as it is written."""
 
@@ -684,7 +684,7 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
         self.showLegends = True
 
     def getParameterNode(self):
-        return VEScanParameterNode(super().getParameterNode())
+        return VeScanParameterNode(super().getParameterNode())
 
     # Inputs
 
@@ -864,7 +864,7 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
         if isPathSet(params.outputDir):
             outputDir = pathlib.Path(params.outputDir)
         else:
-            outputDir = self.temporaryOutput = pathlib.Path(slicer.app.temporaryPath) / "VEScan" / time.strftime("%Y%m%d-%H%M%S")
+            outputDir = self.temporaryOutput = pathlib.Path(slicer.app.temporaryPath) / "VeScan" / time.strftime("%Y%m%d-%H%M%S")
             if logCallback:
                 logCallback(_("No output folder: working in {path} (removed on scene close or with the next run; "
                               "save the scene to keep the results).").format(path=outputDir))
@@ -1254,11 +1254,11 @@ class VEScanLogic(ScriptedLoadableModuleLogic):
 
 
 #
-# VEScanTest
+# VeScanTest
 #
 
 
-class VEScanTest(ScriptedLoadableModuleTest):
+class VeScanTest(ScriptedLoadableModuleTest):
     def setUp(self):
         slicer.mrmlScene.Clear()
 
@@ -1277,7 +1277,7 @@ class VEScanTest(ScriptedLoadableModuleTest):
         node.SetIJKToRASDirections(-1, 0, 0, 0, 0, 1, 0, -1, 0)
         path = pathlib.Path(tempfile.mkdtemp()) / "volume.nii.gz"
         slicer.util.saveNode(node, str(path))
-        geom, reference = VEScanLogic.geometry(node), load_reference(path)[0]
+        geom, reference = VeScanLogic.geometry(node), load_reference(path)[0]
         for attr in ("spacing", "origin", "direction"):
             self.assertTrue(np.allclose(getattr(geom, attr), getattr(reference, attr)), attr)
         self.delayDisplay("Geometry test passed")
@@ -1285,7 +1285,7 @@ class VEScanTest(ScriptedLoadableModuleTest):
     def test_Config(self):
         """The bundled JSON with the UI keys is a valid vescan config."""
         import tempfile
-        logic = VEScanLogic()
+        logic = VeScanLogic()
         params = logic.getParameterNode()
         params.storePath = pathlib.Path("store.duckn.zip")
         params.stageAnatomy = False

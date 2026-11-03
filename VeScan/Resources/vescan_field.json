@@ -1,5 +1,5 @@
 {
-  "experiment_name": "SlicerVEScan",
+  "experiment_name": "SlicerVeScan",
   "notes": "Base config of the VeScan module, loaded with vescan_field.config. Every parameter is set here; the module overwrites only: batch.patients_root_dir / surfaces_root_dir / results_root_dir (output folder), batch.store, batch.structures.<s>.enabled, batch.structures.airways.classes (no airway wall input), pipeline.stages and pipeline.clip.",
   "logging": {
     "level": "INFO",

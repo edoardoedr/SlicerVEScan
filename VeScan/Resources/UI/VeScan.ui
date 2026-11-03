@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>VEScan</class>
- <widget class="qMRMLWidget" name="VEScan">
+ <class>VeScan</class>
+ <widget class="qMRMLWidget" name="VeScan">
   <layout class="QVBoxLayout" name="layout_54">
    <item>
     <widget class="ctkCollapsibleButton" name="inputsCollapsibleButton">
@@ -1248,43 +1248,43 @@
  <resources/>
  <connections>
   <connection>
-   <sender>VEScan</sender>
+   <sender>VeScan</sender>
    <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
    <receiver>ctNodeSelector</receiver>
    <slot>setMRMLScene(vtkMRMLScene*)</slot>
   </connection>
   <connection>
-   <sender>VEScan</sender>
+   <sender>VeScan</sender>
    <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
    <receiver>arterySegmentSelector</receiver>
    <slot>setMRMLScene(vtkMRMLScene*)</slot>
   </connection>
   <connection>
-   <sender>VEScan</sender>
+   <sender>VeScan</sender>
    <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
    <receiver>veinsSegmentSelector</receiver>
    <slot>setMRMLScene(vtkMRMLScene*)</slot>
   </connection>
   <connection>
-   <sender>VEScan</sender>
+   <sender>VeScan</sender>
    <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
    <receiver>airwaysSegmentSelector</receiver>
    <slot>setMRMLScene(vtkMRMLScene*)</slot>
   </connection>
   <connection>
-   <sender>VEScan</sender>
+   <sender>VeScan</sender>
    <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
    <receiver>airwayWallSegmentSelector</receiver>
    <slot>setMRMLScene(vtkMRMLScene*)</slot>
   </connection>
   <connection>
-   <sender>VEScan</sender>
+   <sender>VeScan</sender>
    <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
    <receiver>lobesNodeSelector</receiver>
    <slot>setMRMLScene(vtkMRMLScene*)</slot>
   </connection>
   <connection>
-   <sender>VEScan</sender>
+   <sender>VeScan</sender>
    <signal>mrmlSceneChanged(vtkMRMLScene*)</signal>
    <receiver>crossingsTableView</receiver>
    <slot>setMRMLScene(vtkMRMLScene*)</slot>
